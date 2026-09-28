@@ -54,4 +54,29 @@
   };
 
   home.file.".p10k.zsh".source = ./p10k.zsh;
+
+  xdg.configFile = {
+    "byobu/backend".text = "BYOBU_BACKEND=tmux\n";
+    "byobu/status".source = ./byobu/status;
+    "byobu/statusrc".source = ./byobu/statusrc;
+    "byobu/color.tmux".source = ./byobu/color.tmux;
+    "byobu/datetime.tmux".source = ./byobu/datetime.tmux;
+    "byobu/profile.tmux".source = ./byobu/profile.tmux;
+    "byobu/keybindings.tmux".source = ./byobu/keybindings.tmux;
+    "byobu/.tmux.conf".source = ./byobu/tmux.conf;
+    "byobu/layouts/three-vertical".source =
+      ./byobu/layouts/three-vertical;
+    "byobu/bin/whoami" = {
+      source = ./byobu/bin/whoami;
+      executable = true;
+    };
+    "byobu/bin/hostname" = {
+      source = ./byobu/bin/hostname;
+      executable = true;
+    };
+    "byobu/bin/time_utc" = {
+      source = ./byobu/bin/time_utc;
+      executable = true;
+    };
+  };
 }

@@ -1,0 +1,8 @@
+#!/bin/sh
+. "$BYOBU_PREFIX/lib/byobu/time_utc"
+__time_utc() {
+  d=$(date -u +%H:%M)
+  printf "#[default]#[fg=$COLOR_INVERSE_FG,bg=$COLOR_INVERSE_BG]"
+  printf "▌%s▐" "$d"
+  color -
+}

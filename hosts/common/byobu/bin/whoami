@@ -1,0 +1,9 @@
+#!/bin/sh
+. "$BYOBU_PREFIX/lib/byobu/whoami"
+__whoami() {
+  local user=$(___get_user)
+  [ -n "$user" ] || return
+  printf "#[default]#[fg=$COLOR_INVERSE_FG,bg=$COLOR_INVERSE_BG]"
+  printf " %s@" "$user"
+  color -
+}

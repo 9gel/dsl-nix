@@ -1,0 +1,14 @@
+#!/bin/sh
+. "$BYOBU_PREFIX/lib/byobu/hostname"
+__hostname() {
+  local h=
+  if eval $BYOBU_TEST hostname >/dev/null 2>&1; then
+    h=$(hostname -s 2>/dev/null || hostname)
+  elif [ -r /proc/sys/kernel/hostname ]; then
+    read h < /proc/sys/kernel/hostname
+  fi
+  [ -n "$h" ] || return
+  printf "#[default]#[fg=$COLOR_INVERSE_FG,bg=$COLOR_INVERSE_BG]"
+  printf "%s▐" "$h"
+  color -
+}
