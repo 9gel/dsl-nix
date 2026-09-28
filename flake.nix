@@ -44,7 +44,7 @@
 
       nixosConfigurations.greeter = nixos-raspberrypi.lib.nixosSystem {
         modules = [
-          ./hosts/pi5/configuration.nix
+          ./hosts/greeter/configuration.nix
           home-manager.nixosModules.home-manager
           dimsumHm
         ];
