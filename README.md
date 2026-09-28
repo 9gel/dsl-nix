@@ -15,6 +15,7 @@ live `/etc/nixos` (channel install, hostname `nixos`,
 - Home Manager for `dimsum`: zsh, oh-my-zsh, powerlevel10k,
   and `~/.p10k.zsh` copied from this host's home-manager
 - Byobu autostarts in interactive zsh. `NO_BYOBU=1` skips it.
+- Suspend is blocked while a PipeWire stream is active.
 
 This repo does not switch the live machine.
 

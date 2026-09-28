@@ -201,6 +201,58 @@
     };
   };
 
+  # Spotify never takes a sleep lock. Hold one while any
+  # PipeWire playback stream is active, then drop it.
+  systemd.user.services.audio-sleep-inhibit = {
+    description = "Block suspend while audio plays";
+    wantedBy = [ "graphical-session.target" ];
+    after = [
+      "pipewire.service"
+      "wireplumber.service"
+      "graphical-session.target"
+    ];
+    serviceConfig = {
+      ExecStart = pkgs.writeShellScript "audio-sleep-inhibit" ''
+        hold=
+        cleanup() {
+          if [ -n "$hold" ]; then
+            kill "$hold" 2>/dev/null || true
+            wait "$hold" 2>/dev/null || true
+          fi
+        }
+        trap cleanup EXIT TERM INT
+        playing() {
+          ${pkgs.wireplumber}/bin/wpctl status \
+            | ${pkgs.gawk}/bin/awk '
+              /^Audio$/ { audio = 1; next }
+              /^Video$/ { audio = 0 }
+              audio && /\[active\]/ { found = 1 }
+              END { exit !found }
+            '
+        }
+        while true; do
+          if playing; then
+            if [ -z "$hold" ] \
+                || ! kill -0 "$hold" 2>/dev/null; then
+              ${pkgs.systemd}/bin/systemd-inhibit \
+                --what=sleep:idle --who=jukebox \
+                --why="audio playing" --mode=block \
+                ${pkgs.coreutils}/bin/sleep infinity &
+              hold=$!
+            fi
+          elif [ -n "$hold" ]; then
+            kill "$hold" 2>/dev/null || true
+            wait "$hold" 2>/dev/null || true
+            hold=
+          fi
+          ${pkgs.coreutils}/bin/sleep 5
+        done
+      '';
+      Restart = "on-failure";
+      RestartSec = 3;
+    };
+  };
+
   # Some programs need SUID wrappers, can be configured further or are
   # started in user sessions.
   # programs.mtr.enable = true;
