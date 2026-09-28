@@ -1,2 +1,4 @@
+# Janitor deletes this file unless this line exists.
+screen_upper_left=
 tmux_left="logo updates_available whoami hostname"
 tmux_right="time_utc"
