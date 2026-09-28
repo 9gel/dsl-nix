@@ -24,6 +24,12 @@ GRAVITY = 1600.0
 DT_MAX = 1.0 / 20.0
 LOGO_FRACTION = 0.40
 SPIN_DAMP = 3.0
+QR_FRACTION = 0.2
+TELEGRAM = "https://t.me/dimsumlabs"
+CAPTION = (
+    "Joins us on Telegram!",
+    "Scan the code on the right.",
+)
 
 
 @dataclass
@@ -107,7 +113,12 @@ def poke(body: Body, tx: float, ty: float) -> bool:
     return hit
 
 
-def bounce(body: Body, sw: float, sh: float) -> bool:
+def bounce(
+    body: Body,
+    sw: float,
+    sh: float,
+    top: float = 0.0,
+) -> bool:
     half_w = body.w / 2
     half_h = body.h / 2
     hit = False
@@ -119,8 +130,9 @@ def bounce(body: Body, sw: float, sh: float) -> bool:
         body.x = sw - half_w
         body.vx = -abs(body.vx)
         hit = True
-    if body.y < half_h:
-        body.y = half_h
+    ceiling = top + half_h
+    if body.y < ceiling:
+        body.y = ceiling
         body.vy = abs(body.vy)
         hit = True
     elif body.y > sh - half_h:
@@ -130,14 +142,20 @@ def bounce(body: Body, sw: float, sh: float) -> bool:
     return hit
 
 
-def step(body: Body, sw: float, sh: float, dt: float) -> bool:
+def step(
+    body: Body,
+    sw: float,
+    sh: float,
+    dt: float,
+    top: float = 0.0,
+) -> bool:
     dt = min(max(dt, 0.0), DT_MAX)
     if body.hop > 0:
         body.vy += GRAVITY * dt
         body.hop = max(0.0, body.hop - dt)
     body.x += body.vx * dt
     body.y += body.vy * dt
-    hit = bounce(body, sw, sh)
+    hit = bounce(body, sw, sh, top)
     if body.hop == 0:
         body.vx, body.vy = damp(body.vx, body.vy, dt)
     body.vx, body.vy = clamp_speed(body.vx, body.vy)
@@ -206,7 +224,44 @@ def check() -> None:
     )
     step(spinning, 800, 800, 0.05)
     assert spinning.spin < 4
+
+    side, qx, qy, play_top = header_box(1440, 2560)
+    assert side == 512
+    assert qy == 51
+    assert qx == 1440 - 51 - 512
+    assert play_top == qy + side
+    zoned = quiet_zone([[1]], 1)
+    assert zoned == [[0, 0, 0], [0, 1, 0], [0, 0, 0]]
+    capped = Body(
+        x=100, y=40, vx=0, vy=-400, w=20, h=20, spin=0, hop=0,
+    )
+    step(capped, 400, 800, 0.05, top=100)
+    assert capped.y == 110
+    assert capped.vy > 0
     print("ok")
+
+
+def header_box(
+    screen_w: int,
+    screen_h: int,
+) -> tuple[int, int, int, int]:
+    side = max(1, int(screen_h * QR_FRACTION))
+    margin = max(16, int(screen_h * 0.02))
+    return side, screen_w - margin - side, margin, margin + side
+
+
+def quiet_zone(rows: list, border: int = 4) -> list:
+    if len(rows) == 0:
+        return []
+    width = len(rows[0]) + border * 2
+    padded = []
+    for _ in range(border):
+        padded.append([0] * width)
+    for row in rows:
+        padded.append([0] * border + list(row) + [0] * border)
+    for _ in range(border):
+        padded.append([0] * width)
+    return padded
 
 
 def main() -> None:
@@ -222,6 +277,14 @@ def main() -> None:
     if not logo_path.is_file():
         sys.stderr.write("DSL_BAO_LOGO is missing\n")
         raise SystemExit(1)
+    font_raw = os.environ.get("DSL_BAO_FONT", "")
+    if font_raw == "":
+        sys.stderr.write("DSL_BAO_FONT is not set\n")
+        raise SystemExit(1)
+    font_path = Path(font_raw)
+    if not font_path.is_file():
+        sys.stderr.write("DSL_BAO_FONT is missing\n")
+        raise SystemExit(1)
 
     os.environ["SDL_VIDEO_WAYLAND_WMCLASS"] = "dsl-bao"
     os.environ["SDL_VIDEO_X11_WMCLASS"] = "dsl-bao"
@@ -234,6 +297,15 @@ def main() -> None:
     )
     pygame.display.set_caption("dsl-bao")
     screen_w, screen_h = screen.get_size()
+    side, qx, qy, play_top = header_box(screen_w, screen_h)
+    qr_card = render_qr(pygame, telegram_matrix(), side)
+    caption = load_caption_font(
+        pygame,
+        font_path,
+        CAPTION,
+        qx - 2 * qy,
+        side,
+    )
     image = pygame.image.load(str(logo_path)).convert_alpha()
     span = logo_span(
         screen_w, screen_h, image.get_width(), image.get_height(),
@@ -241,7 +313,7 @@ def main() -> None:
     base = pygame.transform.smoothscale(image, span)
     body = Body(
         x=screen_w / 2,
-        y=screen_h / 2,
+        y=play_top + (screen_h - play_top) / 2,
         vx=CRUISE * 0.72,
         vy=CRUISE * 0.70,
         w=float(span[0]),
@@ -266,14 +338,94 @@ def main() -> None:
             last_tap = now
             poke(body, point[0], point[1])
             squash = 0.62
-        if step(body, screen_w, screen_h, dt):
+        if step(body, screen_w, screen_h, dt, play_top):
             if squash > 0.85:
                 squash = 0.78
         squash = squash + (1 - squash) * min(1.0, dt * 8)
         screen.fill(background)
         draw_shadow(pygame, screen, body)
         blit_logo(pygame, screen, base, body, squash, now)
+        draw_caption(pygame, screen, caption, qy, qy, side)
+        screen.blit(qr_card, (qx, qy))
         pygame.display.flip()
+
+
+def telegram_matrix() -> list:
+    import segno
+
+    code = segno.make(TELEGRAM, error="q")
+    return quiet_zone([list(row) for row in code.matrix])
+
+
+def render_qr(pygame: object, matrix: list, side: int) -> object:
+    count = len(matrix)
+    cell = max(1, side // count)
+    used = cell * count
+    pad = (side - used) // 2
+    card = pygame.Surface((side, side), pygame.SRCALPHA)
+    radius = max(8, side // 18)
+    pygame.draw.rect(
+        card,
+        (255, 248, 244),
+        card.get_rect(),
+        border_radius=radius,
+    )
+    dark = (26, 18, 16)
+    dot = max(0, cell // 5)
+    for row_i, row in enumerate(matrix):
+        for col_i, module in enumerate(row):
+            if module == 0:
+                continue
+            pygame.draw.rect(
+                card,
+                dark,
+                (
+                    pad + col_i * cell,
+                    pad + row_i * cell,
+                    cell,
+                    cell,
+                ),
+                border_radius=dot,
+            )
+    return card
+
+
+def load_caption_font(
+    pygame: object,
+    path: Path,
+    lines: tuple,
+    max_w: int,
+    max_h: int,
+) -> object:
+    size = max(12, int(max_h * 0.38))
+    font = pygame.font.Font(str(path), size)
+    while size > 12:
+        widest = max(font.size(line)[0] for line in lines)
+        block = font.get_linesize() * len(lines)
+        if widest <= max_w and block <= max_h:
+            return font
+        size -= 2
+        font = pygame.font.Font(str(path), size)
+    return font
+
+
+def draw_caption(
+    pygame: object,
+    screen: object,
+    font: object,
+    left: int,
+    top: int,
+    height: int,
+) -> None:
+    color = (255, 248, 244)
+    lines = [font.render(line, True, color) for line in CAPTION]
+    gap = max(4, font.get_linesize() // 8)
+    total = sum(line.get_height() for line in lines)
+    total += gap * (len(lines) - 1)
+    y = top + (height - total) / 2
+    for line in lines:
+        screen.blit(line, (left, int(y)))
+        y += line.get_height() + gap
 
 
 def tap_point(

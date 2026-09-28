@@ -11,11 +11,27 @@ let
     rsvg-convert -w 768 \
       ${./dsl-logo-bao.svg} -o "$out"
   '';
+  asapVar = pkgs.fetchurl {
+    url = "https://raw.githubusercontent.com/google/fonts/"
+      + "main/ofl/asap/Asap%5Bwdth%2Cwght%5D.ttf";
+    name = "Asap-Variable.ttf";
+    hash = "sha256-e/KbyrcvfQDeYA6WSj/CBmIAUNhEjd2XaCI3jQ/hgCg=";
+  };
+  # Asap ships as a variable font. Weight 400 is Regular.
+  asapRegular = pkgs.runCommand "Asap-Regular.ttf" {
+    nativeBuildInputs = [ pkgs.python3Packages.fonttools ];
+  } ''
+    fonttools varLib.instancer \
+      ${asapVar} wght=400 wdth=100 \
+      -o "$out"
+  '';
   pythonEnv = pkgs.python3.withPackages (ps: [
     ps.pygame
+    ps.segno
   ]);
   dslBao = pkgs.writeShellScriptBin "dsl-bao" ''
     export DSL_BAO_LOGO=${logoPng}
+    export DSL_BAO_FONT=${asapRegular}
     export SDL_VIDEODRIVER=wayland
     exec ${pythonEnv}/bin/python3 ${./bao.py}
   '';

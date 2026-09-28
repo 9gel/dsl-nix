@@ -58,7 +58,10 @@ Hyprland transform is `1` (90° clockwise) in
 Use `3` if the picture is still sideways. The screen is the Dim Sum Labs bao
 (`hosts/greeter/dsl-logo-bao.svg`, from
 dimsumlabs/dimsumlabs-graphics). It drifts, and a tap makes
-it jump. greetd autologins `dimsum` on tty1. SSH stays up.
+it jump. Top right is a QR code for `https://t.me/dimsumlabs`,
+about a fifth of the screen height. Left of it, in Asap
+Regular: "Joins us on Telegram! Scan the code on the right."
+greetd autologins `dimsum` on tty1. SSH stays up.
 If the session misbehaves: `sudo systemctl stop greetd`.
 
 ```sh
