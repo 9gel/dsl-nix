@@ -22,6 +22,8 @@
     };
     initContent = ''
       source ${config.home.homeDirectory}/.p10k.zsh
+      bindkey -e
+      bindkey '^A' beginning-of-line
       # Byobu on an interactive login. NO_BYOBU=1 skips it.
       # Probe first. A wedged tmux ignores TERM, so use KILL.
       # Exit 0 or 1 means the server answered.
@@ -55,28 +57,36 @@
 
   home.file.".p10k.zsh".source = ./p10k.zsh;
 
-  xdg.configFile = {
-    "byobu/backend".text = "BYOBU_BACKEND=tmux\n";
-    "byobu/status".source = ./byobu/status;
-    "byobu/statusrc".source = ./byobu/statusrc;
-    "byobu/color.tmux".source = ./byobu/color.tmux;
-    "byobu/datetime.tmux".source = ./byobu/datetime.tmux;
-    "byobu/profile.tmux".source = ./byobu/profile.tmux;
-    "byobu/keybindings.tmux".source = ./byobu/keybindings.tmux;
-    "byobu/.tmux.conf".source = ./byobu/tmux.conf;
-    "byobu/layouts/three-vertical".source =
-      ./byobu/layouts/three-vertical;
-    "byobu/bin/whoami" = {
-      source = ./byobu/bin/whoami;
-      executable = true;
+  xdg.configFile =
+    let
+      # Byobu already wrote these on first login. Replace them.
+      managed = source: {
+        inherit source;
+        force = true;
+      };
+    in
+    {
+      "byobu/backend" = {
+        text = "BYOBU_BACKEND=tmux\n";
+        force = true;
+      };
+      "byobu/status" = managed ./byobu/status;
+      "byobu/statusrc" = managed ./byobu/statusrc;
+      "byobu/color.tmux" = managed ./byobu/color.tmux;
+      "byobu/datetime.tmux" = managed ./byobu/datetime.tmux;
+      "byobu/profile.tmux" = managed ./byobu/profile.tmux;
+      "byobu/keybindings.tmux" = managed ./byobu/keybindings.tmux;
+      "byobu/.tmux.conf" = managed ./byobu/tmux.conf;
+      "byobu/layouts/three-vertical" =
+        managed ./byobu/layouts/three-vertical;
+      "byobu/bin/whoami" = managed ./byobu/bin/whoami // {
+        executable = true;
+      };
+      "byobu/bin/hostname" = managed ./byobu/bin/hostname // {
+        executable = true;
+      };
+      "byobu/bin/time_utc" = managed ./byobu/bin/time_utc // {
+        executable = true;
+      };
     };
-    "byobu/bin/hostname" = {
-      source = ./byobu/bin/hostname;
-      executable = true;
-    };
-    "byobu/bin/time_utc" = {
-      source = ./byobu/bin/time_utc;
-      executable = true;
-    };
-  };
 }

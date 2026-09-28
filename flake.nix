@@ -24,6 +24,7 @@
       dimsumHm = {
         home-manager.useGlobalPkgs = true;
         home-manager.useUserPackages = true;
+        home-manager.backupFileExtension = "hm-bak";
         home-manager.users.dimsum = import ./hosts/common/home.nix;
       };
     in
