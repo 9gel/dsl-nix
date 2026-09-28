@@ -49,8 +49,21 @@ nix eval --raw \
 Raspberry Pi 5, hostname `greeter` (`greeter.local`). Same Pi
 platform as `~/Code/pi5-nix`: nixos-raspberrypi's nixpkgs,
 firmware bootloader, no 16k page size. User is `dimsum`, with
-the same zsh, powerlevel10k, and Byobu as jukebox. No desktop
-and no Spotify.
+the same zsh, powerlevel10k, and Byobu as jukebox. No Spotify.
+
+HDMI-A-1 is a sideways 2560x1440 touch panel (WDT AC270).
+An unrotated console has its top on the physical right, so
+Hyprland transform is `1` (90° clockwise) in
+`hosts/greeter/display.nix`. The same number rotates touch.
+Use `3` if the picture is still sideways. The screen is the Dim Sum Labs bao
+(`hosts/greeter/dsl-logo-bao.svg`, from
+dimsumlabs/dimsumlabs-graphics). It drifts, and a tap makes
+it jump. greetd autologins `dimsum` on tty1. SSH stays up.
+If the session misbehaves: `sudo systemctl stop greetd`.
+
+```sh
+python3 hosts/greeter/bao.py --check
+```
 
 The live image still logs in as `nigel`. A switch adds `dimsum`
 and leaves the `nigel` account in place.

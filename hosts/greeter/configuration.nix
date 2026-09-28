@@ -1,4 +1,4 @@
-# Pi 5, headless, root on the NVMe this image is flashed to.
+# Pi 5, root on the NVMe this image is flashed to.
 # Stock NixOS U-Boot cannot continue boot from NVMe. The firmware
 # "kernel" bootloader can. First boot grows the root partition.
 {
@@ -17,6 +17,8 @@ in
     raspberry-pi-5.base
     # No page-size-16k. That build has no cache.
     sd-image
+  ] ++ [
+    ./display.nix
   ];
 
   boot.kernelPackages = pkgs.linuxPackages_rpi5;
