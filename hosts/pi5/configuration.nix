@@ -29,7 +29,7 @@ in
   sdImage.compressImage = false;
   boot.zfs.forceImportRoot = false;
 
-  networking.hostName = "pi5";
+  networking.hostName = "greeter";
   networking.useDHCP = lib.mkDefault true;
   time.timeZone = "Asia/Hong_Kong";
 

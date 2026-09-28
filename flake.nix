@@ -42,7 +42,7 @@
         ];
       };
 
-      nixosConfigurations.pi5 = nixos-raspberrypi.lib.nixosSystem {
+      nixosConfigurations.greeter = nixos-raspberrypi.lib.nixosSystem {
         modules = [
           ./hosts/pi5/configuration.nix
           home-manager.nixosModules.home-manager
