@@ -43,15 +43,22 @@ nix eval --raw \
 
 ## pi5
 
-Raspberry Pi 5 at `pi5.local`. Stock NVMe image. Hostname stays
-`pi5`. User in this flake is `dimsum` (same zsh, powerlevel10k,
-and Byobu as jukebox). No desktop and no Spotify.
+Raspberry Pi 5 at `pi5.local`. Same Pi platform as
+`~/Code/pi5-nix`: nixos-raspberrypi's nixpkgs, firmware
+bootloader, no 16k page size. Hostname stays `pi5`. User is
+`dimsum`, with the same zsh, powerlevel10k, and Byobu as
+jukebox. No desktop and no Spotify.
 
 The live image still logs in as `nigel`. A switch adds `dimsum`
 and leaves the `nigel` account in place.
 
-On the Pi, from a checkout:
+On the Pi, from a checkout. The cache flag is required. This
+flake does not set it, same as `pi5-nix`:
 
 ```sh
-sudo nixos-rebuild switch --flake .#pi5
+sudo nixos-rebuild switch --flake .#pi5 \
+  --option extra-substituters \
+    https://nixos-raspberrypi.cachix.org \
+  --option extra-trusted-public-keys \
+    nixos-raspberrypi.cachix.org-1:4iMO9LXa8BqhU+Rpg6LQKiGa2lsNh/j2oiYLNOQ5sPI=
 ```

@@ -15,7 +15,7 @@ in
 {
   imports = with nixos-raspberrypi.nixosModules; [
     raspberry-pi-5.base
-    raspberry-pi-5.page-size-16k
+    # No page-size-16k. That build has no cache.
     sd-image
   ];
 
@@ -34,10 +34,10 @@ in
   time.timeZone = "Asia/Hong_Kong";
 
   # PCIe is off unless a HAT+ EEPROM enables it. Turn the root
-  # port on so an NVMe adapter enumerates.
-  hardware.raspberry-pi.config.all.base-dt-params = {
-    pciex1.enable = true;
-  };
+  # port on so an NVMe adapter enumerates. Official docs:
+  # dtparam=pciex1.
+  hardware.raspberry-pi.config.all.base-dt-params.pciex1.enable =
+    true;
 
   services.openssh = {
     enable = true;

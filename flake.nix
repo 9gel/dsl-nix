@@ -1,23 +1,15 @@
 {
   description = "Dim Sum Lab NixOS machines";
 
-  nixConfig = {
-    extra-substituters = [
-      "https://nixos-raspberrypi.cachix.org"
-    ];
-    extra-trusted-public-keys = [
-      "nixos-raspberrypi.cachix.org-1:4iMO9LXa8BqhU+Rpg6LQKiGa2lsNh/j2oiYLNOQ5sPI="
-    ];
-  };
-
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     home-manager.url =
       "github:nix-community/home-manager/release-26.05";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
+    # Own nixpkgs, same as ~/Code/pi5-nix. Do not follow this
+    # flake's nixpkgs: that misses the Raspberry Pi cache.
     nixos-raspberrypi.url =
       "github:nvmd/nixos-raspberrypi/main";
-    nixos-raspberrypi.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs = { self, nixpkgs, home-manager, nixos-raspberrypi }:
