@@ -14,6 +14,7 @@ live `/etc/nixos` (channel install, hostname `nixos`,
 - touchpad option is `services.libinput.enable`
 - Home Manager for `dimsum`: zsh, oh-my-zsh, powerlevel10k,
   and `~/.p10k.zsh` copied from this host's home-manager
+- Byobu autostarts in interactive zsh. `NO_BYOBU=1` skips it.
 
 This repo does not switch the live machine.
 
