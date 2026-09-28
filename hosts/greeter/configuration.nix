@@ -81,7 +81,10 @@ in
     MemoryMax = "70%";
   };
 
-  environment.systemPackages = [ pkgs.raspberrypi-eeprom ];
+  environment.systemPackages = with pkgs; [
+    git
+    raspberrypi-eeprom
+  ];
 
   system.stateVersion = "26.05";
 }
