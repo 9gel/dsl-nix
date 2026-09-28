@@ -182,10 +182,20 @@
   # service reapplies it automatically. Autostarts on login (GNOME autologin).
   systemd.user.services.easyeffects = {
     description = "EasyEffects audio effects (background service)";
-    wantedBy = [ "default.target" ];
-    after = [ "pipewire.service" "wireplumber.service" ];
+    wantedBy = [ "graphical-session.target" ];
+    after = [
+      "pipewire.service"
+      "wireplumber.service"
+      "graphical-session.target"
+    ];
+    # No window. offscreen skips the X11 plugin, which aborts
+    # the service when it starts before the GNOME display is up
+    # and then leaves Spotify streams stuck.
+    environment.QT_QPA_PLATFORM = "offscreen";
     serviceConfig = {
-      ExecStart = "${pkgs.easyeffects}/bin/easyeffects --gapplication-service";
+      ExecStart =
+        "${pkgs.easyeffects}/bin/easyeffects"
+        + " --gapplication-service";
       Restart = "on-failure";
       RestartSec = 3;
     };
