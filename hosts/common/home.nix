@@ -7,6 +7,9 @@
   home.packages = with pkgs; [
     direnv
     byobu
+    # byobu-tmux execs tmux from PATH. The byobu package
+    # does not wrap it.
+    tmux
   ];
 
   programs.zsh = {
