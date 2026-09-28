@@ -39,3 +39,18 @@ Check without building:
 nix eval --raw \
   .#nixosConfigurations.jukebox.config.networking.hostName
 ```
+
+## pi5
+
+Raspberry Pi 5 at `pi5.local`. Stock NVMe image. Hostname stays
+`pi5`. User in this flake is `dimsum` (same zsh, powerlevel10k,
+and Byobu as jukebox). No desktop and no Spotify.
+
+The live image still logs in as `nigel`. A switch adds `dimsum`
+and leaves the `nigel` account in place.
+
+On the Pi, from a checkout:
+
+```sh
+sudo nixos-rebuild switch --flake .#pi5
+```
