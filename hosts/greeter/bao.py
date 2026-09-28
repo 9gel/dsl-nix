@@ -7,7 +7,11 @@ from __future__ import annotations
 
 import math
 import os
+import random
+import struct
 import sys
+import tempfile
+import wave
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,6 +33,13 @@ TELEGRAM = "https://t.me/dimsumlabs"
 CAPTION = (
     "Joins us on Telegram!",
     "Scan the code on the right.",
+)
+FOOTER = "Don't touch the bao!"
+SOUND_NAMES = (
+    "boing",
+    "ouch",
+    "dont-touch-me",
+    "stop-it",
 )
 
 
@@ -238,7 +249,53 @@ def check() -> None:
     step(capped, 400, 800, 0.05, top=100)
     assert capped.y == 110
     assert capped.vy > 0
+    assert [sound_at(i) for i in range(4)] == list(SOUND_NAMES)
+    assert sound_at(4) == "boing"
+    margin, width, right = footer_box(1440, 2560)
+    assert margin == 51
+    assert width == 720
+    assert right == 1440 - 51
+    with tempfile.TemporaryDirectory() as tmp:
+        boing = Path(tmp) / "boing.wav"
+        write_boing(boing)
+        data = boing.read_bytes()
+    assert data[:4] == b"RIFF"
+    assert len(data) > 1000
     print("ok")
+
+
+def sound_at(index: int) -> str:
+    return SOUND_NAMES[index % len(SOUND_NAMES)]
+
+
+def footer_box(
+    screen_w: int,
+    screen_h: int,
+) -> tuple[int, int, int]:
+    margin = max(16, int(screen_h * 0.02))
+    width = max(1, screen_w // 2)
+    return margin, width, screen_w - margin
+
+
+def write_boing(path: Path) -> None:
+    rate = 22050
+    seconds = 0.42
+    count = int(rate * seconds)
+    phase = 0.0
+    samples = bytearray()
+    for i in range(count):
+        t = i / rate
+        freq = 540.0 * (0.22 ** (t / seconds))
+        phase += 2.0 * math.pi * freq / rate
+        env = math.exp(-3.2 * t)
+        env *= math.sin(math.pi * min(t / seconds, 1.0))
+        value = max(-1.0, min(1.0, math.sin(phase) * env))
+        samples += struct.pack("<h", int(value * 30000))
+    with wave.open(str(path), "w") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(rate)
+        handle.writeframes(samples)
 
 
 def header_box(
@@ -321,6 +378,14 @@ def main() -> None:
         spin=0.0,
         hop=0.0,
     )
+    footer = font_for_width(
+        pygame,
+        font_path,
+        FOOTER,
+        screen_w // 2,
+        screen_h // 8,
+    )
+    sounds, voice = load_sounds(pygame)
     squash = 1.0
     last_tap = 0.0
     clock = pygame.time.Clock()
@@ -336,8 +401,10 @@ def main() -> None:
             if point is None or now - last_tap < 0.12:
                 continue
             last_tap = now
-            poke(body, point[0], point[1])
+            hit = poke(body, point[0], point[1])
             squash = 0.62
+            if hit and voice is not None:
+                voice.play(sounds[random.randrange(len(sounds))])
         if step(body, screen_w, screen_h, dt, play_top):
             if squash > 0.85:
                 squash = 0.78
@@ -347,7 +414,68 @@ def main() -> None:
         blit_logo(pygame, screen, base, body, squash, now)
         draw_caption(pygame, screen, caption, qy, qy, side)
         screen.blit(qr_card, (qx, qy))
+        draw_footer(pygame, screen, footer, screen_w, screen_h)
         pygame.display.flip()
+
+
+def load_sounds(pygame: object) -> tuple:
+    raw = os.environ.get("DSL_BAO_SOUNDS", "")
+    if raw == "":
+        return [], None
+    folder = Path(raw)
+    if not folder.is_dir():
+        sys.stderr.write("DSL_BAO_SOUNDS is missing\n")
+        return [], None
+    try:
+        pygame.mixer.init(frequency=22050, size=-16, channels=1)
+    except pygame.error as err:
+        sys.stderr.write("audio unavailable: %s\n" % err)
+        return [], None
+    loaded = []
+    for name in SOUND_NAMES:
+        path = folder / ("%s.wav" % name)
+        if not path.is_file():
+            sys.stderr.write("missing sound %s\n" % name)
+            continue
+        loaded.append(pygame.mixer.Sound(str(path)))
+    if len(loaded) == 0:
+        return [], None
+    return loaded, pygame.mixer.Channel(0)
+
+
+def font_for_width(
+    pygame: object,
+    path: Path,
+    text: str,
+    target_w: int,
+    max_h: int,
+) -> object:
+    size = 12
+    chosen = pygame.font.Font(str(path), size)
+    while size < max_h:
+        size += 2
+        trial = pygame.font.Font(str(path), size)
+        wide = trial.size(text)[0] > target_w
+        tall = trial.get_linesize() > max_h
+        if wide or tall:
+            return chosen
+        chosen = trial
+    return chosen
+
+
+def draw_footer(
+    pygame: object,
+    screen: object,
+    font: object,
+    screen_w: int,
+    screen_h: int,
+) -> None:
+    margin, _width, right = footer_box(screen_w, screen_h)
+    line = font.render(FOOTER, True, (255, 248, 244))
+    screen.blit(
+        line,
+        (right - line.get_width(), screen_h - margin - line.get_height()),
+    )
 
 
 def telegram_matrix() -> list:
@@ -494,5 +622,7 @@ def blit_logo(
 if __name__ == "__main__":
     if "--check" in sys.argv:
         check()
+    elif "--write-boing" in sys.argv:
+        write_boing(Path(sys.argv[-1]))
     else:
         main()

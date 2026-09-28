@@ -29,9 +29,24 @@ let
     ps.pygame
     ps.segno
   ]);
+  speak = pkgs.espeak-ng.override {
+    mbrolaSupport = false;
+  };
+  sounds = pkgs.runCommand "dsl-bao-sounds" {
+    nativeBuildInputs = [ speak pkgs.python3 ];
+  } ''
+    mkdir -p "$out"
+    espeak-ng -w "$out/ouch.wav" -s 150 -p 62 "ouch"
+    espeak-ng -w "$out/dont-touch-me.wav" \
+      -s 138 -p 48 "don't touch me!"
+    espeak-ng -w "$out/stop-it.wav" \
+      -s 160 -p 75 "Stop it!"
+    python3 ${./bao.py} --write-boing "$out/boing.wav"
+  '';
   dslBao = pkgs.writeShellScriptBin "dsl-bao" ''
     export DSL_BAO_LOGO=${logoPng}
     export DSL_BAO_FONT=${asapRegular}
+    export DSL_BAO_SOUNDS=${sounds}
     export SDL_VIDEODRIVER=wayland
     exec ${pythonEnv}/bin/python3 ${./bao.py}
   '';
@@ -101,7 +116,13 @@ in
     withUWSM = false;
   };
 
+  services.pipewire = {
+    enable = true;
+    alsa.enable = true;
+    pulse.enable = true;
+  };
   users.users.dimsum.extraGroups = [
+    "audio"
     "video"
     "render"
     "input"

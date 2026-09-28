@@ -61,7 +61,10 @@ dimsumlabs/dimsumlabs-graphics). It drifts, and a tap makes
 it jump. Top right is a QR code for `https://t.me/dimsumlabs`,
 about a fifth of the screen height. Left of it, in Asap
 Regular: "Joins us on Telegram! Scan the code on the right."
-greetd autologins `dimsum` on tty1. SSH stays up.
+A tap on the bao plays boing, ouch, "don't touch me!", or
+"Stop it!" at random. Bottom right, half the screen width:
+"Don't touch the bao!" greetd autologins `dimsum` on tty1.
+SSH stays up.
 If the session misbehaves: `sudo systemctl stop greetd`.
 
 ```sh
