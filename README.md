@@ -11,6 +11,9 @@ live `/etc/nixos` (channel install, hostname `nixos`,
 - `networking.hostName` set to `jukebox`
 - `spotify` added to `environment.systemPackages`
 - flakes enabled for later rebuilds
+- touchpad option is `services.libinput.enable`
+- Home Manager for `dimsum`: zsh, oh-my-zsh, powerlevel10k,
+  and `~/.p10k.zsh` copied from this host's home-manager
 
 This repo does not switch the live machine.
 

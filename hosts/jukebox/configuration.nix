@@ -67,7 +67,12 @@
   };
 
   # Enable touchpad support (enabled default in most desktopManager).
-  services.xserver.libinput.enable = true;
+  services.libinput.enable = true;
+
+  fonts.packages = [ pkgs.meslo-lgs-nf ];
+
+  programs.dconf.enable = true;
+  programs.zsh.enable = true;
 
   # Define a user account. Don't forget to set a password with ‘passwd’.
   users.users.dimsum = {
@@ -76,6 +81,7 @@
     extraGroups = [ "networkmanager" "wheel" ];
     packages = with pkgs; [
     ];
+    shell = pkgs.zsh;
   };
 
   # Install firefox.
