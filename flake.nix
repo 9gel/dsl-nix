@@ -32,6 +32,7 @@
       nixosConfigurations.jukebox = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
         modules = [
+          ./hosts/common/baseline.nix
           ./hosts/jukebox/configuration.nix
           home-manager.nixosModules.home-manager
           dimsumHm
@@ -45,6 +46,7 @@
 
       nixosConfigurations.greeter = nixos-raspberrypi.lib.nixosSystem {
         modules = [
+          ./hosts/common/baseline.nix
           ./hosts/greeter/configuration.nix
           home-manager.nixosModules.home-manager
           dimsumHm

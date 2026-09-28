@@ -82,7 +82,6 @@ in
   };
 
   environment.systemPackages = with pkgs; [
-    git
     raspberrypi-eeprom
   ];
 

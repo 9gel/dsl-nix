@@ -2,6 +2,9 @@
 
 NixOS definitions for Dim Sum Lab machines.
 
+Every host imports `hosts/common/baseline.nix`. Put packages
+that belong on all machines there.
+
 ## jukebox
 
 Laptop at `172.31.3.100`, user `dimsum`. Config copied from the

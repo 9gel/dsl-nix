@@ -101,7 +101,6 @@
     # Nano is also installed by default.
     vim
     wget
-    git
     xscreensaver
     # AirPlay receiver (also run as a user service below).
     shairport-sync
