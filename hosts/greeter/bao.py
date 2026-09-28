@@ -15,7 +15,7 @@ import wave
 from dataclasses import dataclass
 from pathlib import Path
 
-CRUISE = 170.0
+CRUISE = 400.0
 MAX_SPEED = 1700.0
 DAMP = 1.35
 JUMP_UP = 1400.0
