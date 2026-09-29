@@ -1,7 +1,8 @@
 """Drifting Dim Sum Labs bao. A tap makes it jump.
 
-The bao is one GPU texture. SDL scales and rotates it.
-Per-frame CPU smoothscale was the Pi stutter.
+The fullscreen SDL GPU window stayed blank on Hyprland.
+This stays on the software surface that already displayed,
+and redraws only the bao's rectangle.
 
 Run `python3 bao.py --check` with no display and no pygame.
 """
@@ -177,6 +178,67 @@ def step(
     return hit
 
 
+@dataclass
+class Frame:
+    logo: tuple
+    shadow: tuple
+    box: tuple
+
+
+def rotated_bounds(
+    cx: float,
+    cy: float,
+    width: float,
+    height: float,
+    spin: float,
+) -> tuple[int, int, int, int]:
+    angle = abs(spin)
+    cosine = abs(math.cos(angle))
+    sine = abs(math.sin(angle))
+    wide = width * cosine + height * sine
+    tall = width * sine + height * cosine
+    return (
+        int(math.floor(cx - wide / 2)),
+        int(math.floor(cy - tall / 2)),
+        int(math.ceil(cx + wide / 2)),
+        int(math.ceil(cy + tall / 2)),
+    )
+
+
+def frame_of(body: Body, squash: float, now: float) -> Frame:
+    lift = 0.0
+    if body.hop > 0:
+        lift = min(1.0, body.hop / HOP_TIME)
+    bob = math.sin(now * 2.1) * 7 * (1 - lift)
+    width = max(1, int(body.w * (1 + (1 - squash) * 0.5)))
+    height = max(1, int(body.h * squash))
+    cx = int(body.x)
+    cy = int(body.y + bob)
+    shadow_w = max(8, int(body.w * (0.62 - 0.22 * lift)))
+    shadow_h = max(4, int(body.h * (0.14 - 0.05 * lift)))
+    alpha = int(90 * (1 - 0.65 * lift))
+    sx = int(body.x)
+    sy = int(body.y + body.h * 0.42 + lift * 36)
+    left, top, right, bottom = rotated_bounds(
+        cx, cy, width, height, body.spin,
+    )
+    sleft, stop, sright, sbottom = rotated_bounds(
+        sx, sy, shadow_w, shadow_h, 0.0,
+    )
+    pad = 6
+    box = (
+        min(left, sleft) - pad,
+        min(top, stop) - pad,
+        max(right, sright) + pad,
+        max(bottom, sbottom) + pad,
+    )
+    return Frame(
+        (cx, cy, width, height),
+        (sx, sy, shadow_w, shadow_h, alpha),
+        box,
+    )
+
+
 def check() -> None:
     assert logo_span(1000, 800, 85, 85) == (320, 320)
     assert logo_span(100, 100, 0, 0) == (1, 1)
@@ -264,6 +326,13 @@ def check() -> None:
         data = boing.read_bytes()
     assert data[:4] == b"RIFF"
     assert len(data) > 1000
+    still = Body(
+        x=100, y=100, vx=0, vy=0, w=40, h=40, spin=0, hop=0,
+    )
+    framed = frame_of(still, 1.0, 0.0)
+    assert framed.logo == (100, 100, 40, 40)
+    assert framed.shadow[0:4] == (100, 116, 24, 5)
+    assert framed.box == (74, 74, 126, 126)
     print("ok")
 
 
@@ -328,7 +397,6 @@ def main() -> None:
     # pygame is the display path. --check stays importable
     # without SDL.
     import pygame
-    from pygame._sdl2.video import Texture, Window
 
     raw = os.environ.get("DSL_BAO_LOGO", "")
     if raw == "":
@@ -347,34 +415,36 @@ def main() -> None:
         sys.stderr.write("DSL_BAO_FONT is missing\n")
         raise SystemExit(1)
 
-    # Linear filter. Set before SDL_Init copies the hint.
-    os.environ["SDL_RENDER_SCALE_QUALITY"] = "1"
     os.environ["SDL_VIDEO_WAYLAND_WMCLASS"] = "dsl-bao"
     os.environ["SDL_VIDEO_X11_WMCLASS"] = "dsl-bao"
     pygame.init()
-    window = Window("dsl-bao", fullscreen_desktop=True)
     pygame.mouse.set_visible(False)
-    screen_w, screen_h = wait_size(pygame, window)
-    renderer = open_renderer(pygame, window)
+    screen = pygame.display.set_mode(
+        (0, 0),
+        pygame.FULLSCREEN | pygame.NOFRAME,
+        vsync=1,
+    )
+    pygame.display.set_caption("dsl-bao")
+    screen_w, screen_h = screen.get_size()
     side, qx, qy, play_top = header_box(screen_w, screen_h)
-    qr_card = Texture.from_surface(
-        renderer, render_qr(pygame, telegram_matrix(), side),
-    )
-    caption_font = load_caption_font(
+    background = (26, 18, 16)
+    screen.fill(background)
+    screen.blit(render_qr(pygame, telegram_matrix(), side), (qx, qy))
+    draw_caption(
         pygame,
-        font_path,
-        CAPTION,
-        qx - 2 * qy,
+        screen,
+        load_caption_font(
+            pygame, font_path, CAPTION, qx - 2 * qy, side,
+        ),
+        qy,
+        qy,
         side,
-    )
-    caption = make_caption(
-        Texture, renderer, caption_font, qy, qy, side,
     )
     image = pygame.image.load(str(logo_path)).convert_alpha()
     span = logo_span(
         screen_w, screen_h, image.get_width(), image.get_height(),
     )
-    logo = Texture.from_surface(renderer, image)
+    base = pygame.transform.smoothscale(image, span)
     body = Body(
         x=screen_w / 2,
         y=play_top + (screen_h - play_top) / 2,
@@ -385,22 +455,23 @@ def main() -> None:
         spin=0.0,
         hop=0.0,
     )
-    footer_font = font_for_width(
+    draw_footer(
         pygame,
-        font_path,
-        FOOTER,
-        screen_w // 2,
-        screen_h // 8,
+        screen,
+        font_for_width(
+            pygame, font_path, FOOTER, screen_w // 2, screen_h // 8,
+        ),
+        screen_w,
+        screen_h,
     )
-    footer, footer_x, footer_y = make_footer(
-        Texture, renderer, footer_font, screen_w, screen_h,
-    )
-    shadow = make_shadow(pygame, Texture, renderer)
+    # Static pixels. Each frame restores the bao's old rect
+    # from here instead of clearing the whole panel.
+    backdrop = screen.copy()
     sounds, voice = load_sounds(pygame)
     squash = 1.0
     last_tap = 0.0
     clock = pygame.time.Clock()
-    renderer.draw_color = (26, 18, 16, 255)
+    previous = None
 
     while True:
         dt = clock.tick(60) / 1000.0
@@ -420,14 +491,17 @@ def main() -> None:
             if squash > 0.85:
                 squash = 0.78
         squash = squash + (1 - squash) * min(1.0, dt * 8)
-        renderer.clear()
-        draw_shadow(shadow, body)
-        blit_logo(logo, body, squash, now)
-        for texture, left, top in caption:
-            draw_at(texture, left, top)
-        draw_at(qr_card, qx, qy)
-        draw_at(footer, footer_x, footer_y)
-        renderer.present()
+        framed = frame_of(body, squash, now)
+        rect = screen_rect(pygame, framed.box, screen_w, screen_h)
+        if previous is not None:
+            screen.blit(backdrop, previous.topleft, previous)
+        draw_shadow(pygame, screen, framed)
+        blit_logo(pygame, screen, base, framed, body.spin)
+        if previous is None or rect is None:
+            pygame.display.flip()
+        else:
+            pygame.display.update([previous, rect])
+        previous = rect
 
 
 def load_sounds(pygame: object) -> tuple:
@@ -475,19 +549,19 @@ def font_for_width(
     return chosen
 
 
-def make_footer(
-    texture_cls: object,
-    renderer: object,
+def draw_footer(
+    pygame: object,
+    screen: object,
     font: object,
     screen_w: int,
     screen_h: int,
-) -> tuple:
-    line = font.render(FOOTER, True, (255, 248, 244))
+) -> None:
     margin, _width, right = footer_box(screen_w, screen_h)
-    texture = texture_cls.from_surface(renderer, line)
-    x = right - line.get_width()
-    y = screen_h - margin - line.get_height()
-    return texture, x, y
+    line = font.render(FOOTER, True, (255, 248, 244))
+    screen.blit(
+        line,
+        (right - line.get_width(), screen_h - margin - line.get_height()),
+    )
 
 
 def telegram_matrix() -> list:
@@ -549,29 +623,23 @@ def load_caption_font(
     return font
 
 
-def make_caption(
-    texture_cls: object,
-    renderer: object,
+def draw_caption(
+    pygame: object,
+    screen: object,
     font: object,
     left: int,
     top: int,
     height: int,
-) -> list:
+) -> None:
     color = (255, 248, 244)
     lines = [font.render(line, True, color) for line in CAPTION]
     gap = max(4, font.get_linesize() // 8)
     total = sum(line.get_height() for line in lines)
     total += gap * (len(lines) - 1)
     y = top + (height - total) / 2
-    placed = []
     for line in lines:
-        placed.append((
-            texture_cls.from_surface(renderer, line),
-            left,
-            int(y),
-        ))
+        screen.blit(line, (left, int(y)))
         y += line.get_height() + gap
-    return placed
 
 
 def tap_point(
@@ -588,109 +656,57 @@ def tap_point(
     return None
 
 
-def wait_size(pygame: object, window: object) -> tuple[int, int]:
-    last = None
-    stable = 0
-    for _ in range(90):
-        pygame.event.pump()
-        size = tuple(int(value) for value in window.size)
-        steady = size[0] > 0 and size[1] > 0 and size == last
-        if steady:
-            stable += 1
-            if stable >= 5:
-                return size
-        else:
-            last = size
-            stable = 0
-        pygame.time.wait(16)
-    if last is not None and last[0] > 0 and last[1] > 0:
-        return last
-    sys.stderr.write("window has no size\n")
-    raise SystemExit(1)
-
-
-def open_renderer(pygame: object, window: object) -> object:
-    from pygame._sdl2.video import Renderer, get_drivers
-
-    names = [driver.name for driver in get_drivers()]
-    order = []
-    for preferred in ("opengles2", "opengl", "metal"):
-        if preferred in names:
-            order.append(names.index(preferred))
-    if len(order) == 0:
-        sys.stderr.write("no gpu renderer in %s\n" % ", ".join(names))
-        raise SystemExit(1)
-    errors = []
-    for index in order:
-        try:
-            renderer = Renderer(
-                window, index=index, accelerated=1, vsync=True,
-            )
-        except pygame.error as err:
-            errors.append("%s: %s" % (names[index], err))
-            continue
-        sys.stderr.write("renderer: %s\n" % names[index])
-        return renderer
-    sys.stderr.write("gpu renderer failed\n")
-    for line in errors:
-        sys.stderr.write("%s\n" % line)
-    raise SystemExit(1)
-
-
-def make_shadow(
+def screen_rect(
     pygame: object,
-    texture_cls: object,
-    renderer: object,
-) -> object:
-    surf = pygame.Surface((256, 64), pygame.SRCALPHA)
-    pygame.draw.ellipse(surf, (0, 0, 0, 255), surf.get_rect())
-    return texture_cls.from_surface(renderer, surf)
+    box: tuple,
+    screen_w: int,
+    screen_h: int,
+) -> object | None:
+    left = max(0, box[0])
+    top = max(0, box[1])
+    right = min(screen_w, box[2])
+    bottom = min(screen_h, box[3])
+    if right <= left or bottom <= top:
+        return None
+    return pygame.Rect(left, top, right - left, bottom - top)
 
 
-def draw_at(texture: object, x: int, y: int) -> None:
-    rect = texture.get_rect()
-    rect.topleft = (int(x), int(y))
-    texture.draw(dstrect=rect)
-
-
-def draw_shadow(shadow: object, body: Body) -> None:
-    lift = 0.0
-    if body.hop > 0:
-        lift = min(1.0, body.hop / HOP_TIME)
-    width = max(8, int(body.w * (0.62 - 0.22 * lift)))
-    height = max(4, int(body.h * (0.14 - 0.05 * lift)))
-    shadow.alpha = int(90 * (1 - 0.65 * lift))
-    rect = shadow.get_rect(
-        width=width,
-        height=height,
-        center=(
-            int(body.x),
-            int(body.y + body.h * 0.42 + lift * 36),
-        ),
+def draw_shadow(pygame: object, screen: object, framed: Frame) -> None:
+    sx, sy, width, height, alpha = framed.shadow
+    surf = pygame.Surface((width, height), pygame.SRCALPHA)
+    pygame.draw.ellipse(
+        surf, (0, 0, 0, alpha), surf.get_rect(),
     )
-    shadow.draw(dstrect=rect)
+    rect = surf.get_rect()
+    rect.center = (sx, sy)
+    screen.blit(surf, rect)
 
 
 def blit_logo(
-    logo: object,
-    body: Body,
-    squash: float,
-    now: float,
+    pygame: object,
+    screen: object,
+    base: object,
+    framed: Frame,
+    spin: float,
 ) -> None:
-    lift = 0.0
-    if body.hop > 0:
-        lift = min(1.0, body.hop / HOP_TIME)
-    bob = math.sin(now * 2.1) * 7 * (1 - lift)
-    width = max(1, int(body.w * (1 + (1 - squash) * 0.5)))
-    height = max(1, int(body.h * squash))
-    # pygame rotate is counter-clockwise. SDL angle is clockwise.
-    # Positive spin stays clockwise, same as the old negate.
-    rect = logo.get_rect(
-        width=width,
-        height=height,
-        center=(int(body.x), int(body.y + bob)),
-    )
-    logo.draw(dstrect=rect, angle=math.degrees(body.spin))
+    cx, cy, width, height = framed.logo
+    if (
+        width == base.get_width()
+        and height == base.get_height()
+        and abs(spin) < 0.02
+    ):
+        rect = base.get_rect()
+        rect.center = (cx, cy)
+        screen.blit(base, rect)
+        return
+    image = pygame.transform.scale(base, (width, height))
+    if abs(spin) >= 0.02:
+        image = pygame.transform.rotate(
+            image, -math.degrees(spin),
+        )
+    rect = image.get_rect()
+    rect.center = (cx, cy)
+    screen.blit(image, rect)
 
 
 if __name__ == "__main__":
