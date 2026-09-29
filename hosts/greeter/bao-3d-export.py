@@ -5,12 +5,15 @@ bao (Cube.002), the chip body (Cube.001) and the pins
 (Cube.006). The cable, plug and LEDs are left out, and the
 RJ45 socket is cut out of the bao.
 Modifiers are applied. The pins are split into two walking
-groups: A and B step in turn, like a trotting insect.
+groups: A and B step in turn, like a trotting insect. The rear
+pin on Blender -Y (glTF +Z) is its own file, so it can lift
+like a dog's hind leg; it walks with B.
 
   Blender -b model_for_dslan.blend \
     --python bao-3d-export.py -- OUT_DIR
 
-Writes bao-3d-body.glb, bao-3d-legs-a.glb, bao-3d-legs-b.glb.
+Writes bao-3d-body.glb, bao-3d-legs-a.glb, bao-3d-legs-b.glb
+and bao-3d-leg-hind.glb.
 glTF is Y-up: Blender X stays X, Blender Z is Y.
 """
 
@@ -81,7 +84,8 @@ def pin_groups(obj):
     """Split pins into A and B meshes by loose part.
 
     Pins stand in two rows at +Y and -Y, four along X. A is
-    rows' 1st and 3rd on +Y with 2nd and 4th on -Y.
+    rows' 1st and 3rd on +Y with 2nd and 4th on -Y. The hind
+    pin is the 1st (lowest X, rear) on -Y, which is in B.
     """
     bm = bmesh.new()
     bm.from_mesh(obj.data)
@@ -116,7 +120,9 @@ def pin_groups(obj):
         )
         start = 0 if side > 0 else 1
         group_a.update(i for _, i in row[start::2])
-    return group_a, centres
+        if side < 0:
+            hind = row[0][1]
+    return group_a, hind
 
 
 def keep_pins(obj, keep):
@@ -169,12 +175,15 @@ def main():
     export([bao, chip], "bao-3d-body.glb")
 
     pins_a = baked("Cube.006", PIN)
-    group_a, _ = pin_groups(pins_a)
+    group_a, hind = pin_groups(pins_a)
     pins_b = baked("Cube.006", PIN)
+    pin_hind = baked("Cube.006", PIN)
     keep_pins(pins_a, group_a)
-    keep_pins(pins_b, set(range(8)) - group_a)
+    keep_pins(pins_b, set(range(8)) - group_a - {hind})
+    keep_pins(pin_hind, {hind})
     export([pins_a], "bao-3d-legs-a.glb")
     export([pins_b], "bao-3d-legs-b.glb")
+    export([pin_hind], "bao-3d-leg-hind.glb")
 
 
 main()

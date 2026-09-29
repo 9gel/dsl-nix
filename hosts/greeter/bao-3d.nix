@@ -17,6 +17,7 @@ let
     cp ${./bao-3d-body.glb} "$out/bao-3d-body.glb"
     cp ${./bao-3d-legs-a.glb} "$out/bao-3d-legs-a.glb"
     cp ${./bao-3d-legs-b.glb} "$out/bao-3d-legs-b.glb"
+    cp ${./bao-3d-leg-hind.glb} "$out/bao-3d-leg-hind.glb"
   '';
   asapVar = pkgs.fetchurl {
     url = "https://raw.githubusercontent.com/google/fonts/"

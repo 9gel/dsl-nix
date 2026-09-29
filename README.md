@@ -86,8 +86,11 @@ rm /tmp/bao-check
 to go back. Import one, not both. The bao chip from
 dimsumlabs-graphics `3D/model_for_dslan.blend` (no cable, no
 socket) paces the corner of a red room and trots on its pins.
-A tap on it makes it jump, spin, bolt and play the same
-sounds. The QR code and captions are the same. The build runs
+Now and then it stops, turns side-on and leans back to look
+up, or walks to the corner, lifts a hind pin like a dog and
+pees on the left wall. The puddle dries in about 30 s. A tap
+on it interrupts whatever it is doing: it jumps, spins, bolts
+and plays the same sounds. The QR code and captions are the same. The build runs
 `dsl-bao-3d --check`.
 
 The `.glb` files are committed. To remake them from the blend:
