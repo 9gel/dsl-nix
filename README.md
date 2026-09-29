@@ -55,7 +55,7 @@ HDMI-A-1 is a sideways 2560x1440 touch panel (WDT AC270).
 An unrotated console has its top on the physical right.
 greetd starts `dsl-bao` on tty1. That program is the DRM
 client of `/dev/dri/card1` and draws with OpenGL ES 2.
-`screenTransform` in `hosts/greeter/display.nix` is `1`: the
+`screenTransform` in `hosts/greeter/bao.nix` is `1`: the
 portrait scene is turned onto the landscape mode, and touch
 uses the inverse. Use `3` if the picture is still sideways.
 The screen is the Dim Sum Labs bao
@@ -77,6 +77,33 @@ cc -std=c11 -Wall -Wextra -Werror -DDSL_BAO_HEADLESS \
   -o /tmp/bao-check hosts/greeter/bao.c -lm \
   && /tmp/bao-check --check
 rm /tmp/bao-check
+```
+
+### 3D bao
+
+`hosts/greeter/bao-3d.nix` is the 3D variant, and the one
+`configuration.nix` imports now. Import `./bao.nix` instead
+to go back. Import one, not both. The bao chip from
+dimsumlabs-graphics `3D/model_for_dslan.blend` (no cable, no
+socket) paces the corner of a red room and trots on its pins.
+A tap on it makes it jump, spin, bolt and play the same
+sounds. The QR code and captions are the same. The build runs
+`dsl-bao-3d --check`.
+
+The `.glb` files are committed. To remake them from the blend:
+
+```sh
+Blender -b ~/Code/dimsumlabs-graphics/3D/model_for_dslan.blend \
+  --python hosts/greeter/bao-3d-export.py -- hosts/greeter
+```
+
+Motion check, no display:
+
+```sh
+cc -std=c11 -Wall -Wextra -Werror -DDSL_BAO_HEADLESS \
+  -o /tmp/bao-3d-check hosts/greeter/bao-3d.c -lm \
+  && /tmp/bao-3d-check --check
+rm /tmp/bao-3d-check
 ```
 
 Wav and QR writers:
