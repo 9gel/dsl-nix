@@ -86,10 +86,11 @@ rm /tmp/bao-check
 to go back. Import one, not both. The bao chip from
 dimsumlabs-graphics `3D/model_for_dslan.blend` (no cable, no
 socket) paces the corner of a red room and trots on its pins.
-Now and then it stops, turns side-on and stretches up to look
-up. Less often it walks near the corner, turns side-on, sits
-back, lifts its three near hind pins like a dog (rearmost
-highest) and pees from its rear onto the left wall. The puddle dries in about 30 s. A tap
+Now and then it stops, turns side-on and tips its top back and
+down to look up. Less often it walks near the corner, faces
+the viewer, raises its rear, leans away and lifts its three
+near hind pins out sideways like a dog (rearmost highest), and
+pees from its rear onto the left wall. The puddle dries in about 30 s. A tap
 on it interrupts whatever it is doing: it jumps, spins, bolts
 and plays the same sounds. The QR code and captions are the same. The build runs
 `dsl-bao-3d --check`.
