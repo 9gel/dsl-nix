@@ -285,7 +285,7 @@ static const char *sound_names[] = {
 };
 static const int sound_n = 4;
 static const char *caption_lines[] = {
-    "Joins us on Telegram!",
+    "Join us on Telegram!",
     "Scan the code on the right.",
 };
 static const char FOOTER[] = "Don't touch the bao!";

@@ -566,7 +566,7 @@ static int check(void)
 #ifndef DSL_BAO_HEADLESS
 
 static const char *caption_lines[] = {
-    "Joins us on Telegram!",
+    "Join us on Telegram!",
     "Scan the code on the right.",
 };
 static const char FOOTER[] = "Don't touch the bao!";
