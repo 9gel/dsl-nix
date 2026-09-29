@@ -52,10 +52,13 @@ firmware bootloader, no 16k page size. User is `dimsum`, with
 the same zsh, powerlevel10k, and Byobu as jukebox. No Spotify.
 
 HDMI-A-1 is a sideways 2560x1440 touch panel (WDT AC270).
-An unrotated console has its top on the physical right, so
-Hyprland transform is `1` (90° clockwise) in
-`hosts/greeter/display.nix`. The same number rotates touch.
-Use `3` if the picture is still sideways. The screen is the Dim Sum Labs bao
+An unrotated console has its top on the physical right.
+greetd starts `dsl-bao` on tty1. That program is the DRM
+client of `/dev/dri/card1` and draws with OpenGL ES 2.
+`screenTransform` in `hosts/greeter/display.nix` is `1`: the
+portrait scene is turned onto the landscape mode, and touch
+uses the inverse. Use `3` if the picture is still sideways.
+The screen is the Dim Sum Labs bao
 (`hosts/greeter/dsl-logo-bao.svg`, from
 dimsumlabs/dimsumlabs-graphics). It drifts, and a tap makes
 it jump. Top right is a QR code for `https://t.me/dimsumlabs`,
@@ -66,6 +69,17 @@ A tap on the bao plays boing, ouch, "don't touch me!", or
 "Don't touch the bao!" greetd autologins `dimsum` on tty1.
 SSH stays up.
 If the session misbehaves: `sudo systemctl stop greetd`.
+
+Motion check, no display:
+
+```sh
+cc -std=c11 -Wall -Wextra -Werror -DDSL_BAO_HEADLESS \
+  -o /tmp/bao-check hosts/greeter/bao.c -lm \
+  && /tmp/bao-check --check
+rm /tmp/bao-check
+```
+
+Wav and QR writers:
 
 ```sh
 python3 hosts/greeter/bao.py --check

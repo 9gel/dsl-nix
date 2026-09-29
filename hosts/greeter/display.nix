@@ -1,8 +1,10 @@
 # Touch kiosk. HDMI-A-1 is a 2560x1440 panel mounted sideways:
 # an unrotated console has its top on the physical right.
-# screenTransform 1 is 90 degrees clockwise. Use 3 if the
-# picture is still sideways. The digitizer is the USB WDT AC270.
-{ pkgs, ... }:
+# screenTransform 1 turns the portrait scene onto that mode.
+# Use 3 if the picture is still sideways. Touch uses the
+# inverse of the same number. The digitizer is the USB WDT
+# AC270. dsl-bao is the DRM client of /dev/dri/card1.
+{ pkgs, lib, ... }:
 let
   screenTransform = 1;
   logoPng = pkgs.runCommand "dsl-logo-bao.png" {
@@ -43,78 +45,93 @@ let
       -s 160 -p 75 "Stop it!"
     python3 ${./bao.py} --write-boing "$out/boing.wav"
   '';
-  dslBao = pkgs.writeShellScriptBin "dsl-bao" ''
-    export DSL_BAO_LOGO=${logoPng}
-    export DSL_BAO_FONT=${asapRegular}
-    export DSL_BAO_SOUNDS=${sounds}
-    export SDL_VIDEODRIVER=wayland
-    exec ${pythonEnv}/bin/python3 ${./bao.py}
+  qrPng = pkgs.runCommand "dsl-bao-qr.png" {
+    nativeBuildInputs = [ pythonEnv ];
+  } ''
+    export SDL_VIDEODRIVER=dummy
+    python3 ${./bao.py} --write-qr "$out"
   '';
-  # Hyprland 0.55 reads Lua. screenTransform rotates the
-  # picture and the touchscreen together.
-  hyprCfg = pkgs.writeText "hyprland.lua" ''
-    local screenTransform = ${toString screenTransform}
-
-    hl.monitor({
-        output = "HDMI-A-1",
-        mode = "preferred",
-        position = "auto",
-        scale = 1,
-        transform = screenTransform,
-    })
-    hl.monitor({
-        output = "HDMI-A-2",
-        disabled = true,
-    })
-
-    hl.env("AQ_DRM_DEVICES", "/dev/dri/card1")
-    hl.env("AQ_NO_HARDWARE_CURSORS", "1")
-    hl.env("SDL_VIDEODRIVER", "wayland")
-
-    hl.config({
-        general = {
-            gaps_in = 0,
-            gaps_out = 0,
-            border_size = 0,
-        },
-        decoration = {
-            rounding = 0,
-            shadow = { enabled = false },
-            blur = { enabled = false },
-        },
-        animations = { enabled = false },
-        misc = {
-            force_default_wallpaper = 0,
-            disable_hyprland_logo = true,
-        },
-        cursor = {
-            invisible = true,
-            no_hardware_cursors = 1,
-        },
-        input = {
-            touchdevice = {
-                transform = screenTransform,
-                output = "HDMI-A-1",
-            },
-        },
-    })
-
-    hl.on("hyprland.start", function ()
-        hl.exec_cmd(
-            "${pkgs.bash}/bin/bash -c 'while true; do "
-            .. "${dslBao}/bin/dsl-bao; sleep 1; done'"
-        )
-    end)
+  # Desktop raylib is GLFW. This one is the Pi's display:
+  # kernel DRM, EGL, OpenGL ES 2. DSL_DRM_CARD picks card1.
+  raylibDrm = pkgs.stdenv.mkDerivation {
+    pname = "raylib-drm";
+    version = "6.0";
+    src = pkgs.fetchFromGitHub {
+      owner = "raysan5";
+      repo = "raylib";
+      rev = "dbc56a87da87d973a9c5baa4e7438a9d20121d28";
+      hash = "sha256-8+6MDTMc7Spix4ndAUzp51Q5iWcl7pQmyXuV2RutnOk=";
+    };
+    patches = [ ./raylib-drm-card.patch ];
+    nativeBuildInputs = [
+      pkgs.cmake
+      pkgs.pkg-config
+    ];
+    # libGL is the libglvnd dispatch library and its headers.
+    # The Pi's Mesa drivers come from /run/opengl-driver.
+    # xf86drm.h includes <drm.h>, which lives in include/libdrm.
+    buildInputs = [
+      pkgs.libdrm
+      pkgs.libgbm
+      pkgs.libGL
+      pkgs.alsa-lib
+    ];
+    env.NIX_CFLAGS_COMPILE = "-I${pkgs.libdrm.dev}/include/libdrm";
+    # DRM's default graphics API is OpenGL ES 2. A value with a
+    # space is split by the Nix cmake hook, so leave the default.
+    cmakeFlags = [
+      "-DPLATFORM=DRM"
+      "-DBUILD_EXAMPLES=OFF"
+      "-DBUILD_SHARED_LIBS=ON"
+    ];
+  };
+  baoBin = pkgs.stdenv.mkDerivation {
+    pname = "dsl-bao";
+    version = "0";
+    dontUnpack = true;
+    dontConfigure = true;
+    buildInputs = [ raylibDrm pkgs.alsa-lib ];
+    nativeBuildInputs = [ pkgs.pkg-config ];
+    buildPhase = ''
+      $CC -O2 -std=c11 -Wall -Wextra -o dsl-bao ${./bao.c} \
+        -DDSL_SCREEN_TURN=${toString screenTransform} \
+        -DDSL_BAO_LOGO=\"${logoPng}\" \
+        -DDSL_BAO_FONT=\"${asapRegular}\" \
+        -DDSL_BAO_QR=\"${qrPng}\" \
+        -DDSL_BAO_SOUNDS=\"${sounds}\" \
+        $(pkg-config --cflags --libs raylib) \
+        -lasound -lm
+    '';
+    installPhase = ''
+      mkdir -p $out/bin
+      install -m 755 dsl-bao $out/bin/dsl-bao-bin
+    '';
+  };
+  dslBao = pkgs.writeShellScriptBin "dsl-bao" ''
+    export DSL_DRM_CARD=/dev/dri/card1
+    export LD_LIBRARY_PATH=${lib.makeLibraryPath [ pkgs.alsa-lib ]}
+    if [ -d /run/opengl-driver/lib ]; then
+      export LD_LIBRARY_PATH=/run/opengl-driver/lib:$LD_LIBRARY_PATH
+      export LIBGL_DRIVERS_PATH=/run/opengl-driver/lib/dri
+    fi
+    vendor=/run/opengl-driver/share/glvnd/egl_vendor.d
+    if [ -d "$vendor" ]; then
+      export __EGL_VENDOR_LIBRARY_DIRS=$vendor
+    fi
+    exec ${baoBin}/bin/dsl-bao-bin
+  '';
+  # One executable path. greetd runs this; the loop keeps
+  # the picture up if dsl-bao exits.
+  baoSession = pkgs.writeShellScript "dsl-bao-session" ''
+    while true; do
+      ${dslBao}/bin/dsl-bao
+      ${pkgs.coreutils}/bin/sleep 1
+    done
   '';
 in
 {
   hardware.graphics.enable = true;
   boot.kernelParams = [ "consoleblank=0" ];
-
-  programs.hyprland = {
-    enable = true;
-    withUWSM = false;
-  };
 
   services.pipewire = {
     enable = true;
@@ -129,15 +146,16 @@ in
   ];
 
   environment.systemPackages = [ dslBao ];
+  system.build.dslBao = dslBao;
 
   # default_session.user in the greetd module is mkDefault
-  # "greeter". dimsum overrides that. No initial_session, so
-  # greetd respawns Hyprland when the process exits.
+  # "greeter". dimsum overrides that. The loop restarts the
+  # picture if it exits. SSH stays up if greetd stops.
   services.greetd = {
     enable = true;
     settings.default_session = {
       user = "dimsum";
-      command = "/run/wrappers/bin/Hyprland --config ${hyprCfg}";
+      command = "${baoSession}";
     };
   };
 }

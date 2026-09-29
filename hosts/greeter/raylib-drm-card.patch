@@ -1,0 +1,26 @@
+--- a/src/platforms/rcore_drm.c
++++ b/src/platforms/rcore_drm.c
+@@ -46,6 +46,14 @@
+ **********************************************************************************************/
+ 
+ #include <fcntl.h>          // POSIX file control definitions - open(), creat(), fcntl()
++#include <stdlib.h>
++static const char *dsl_drm_card(void)
++{
++    const char *card = getenv("DSL_DRM_CARD");
++    if (card == NULL || card[0] == 0)
++        return "/dev/dri/by-path/platform-gpu-card";
++    return card;
++}
+ #include <unistd.h>         // POSIX standard function definitions - read(), close(), STDIN_FILENO
+ #include <termios.h>        // POSIX terminal control definitions - tcgetattr(), tcsetattr()
+ #include <pthread.h>        // POSIX threads management (inputs reading)
+@@ -1151,7 +1159,7 @@
+     if (platform.fd != -1) TRACELOG(LOG_INFO, "DISPLAY: Default graphic device DRM opened successfully");
+ #else
+     TRACELOG(LOG_WARNING, "DISPLAY: No graphic card set, trying platform-gpu-card");
+-    platform.fd = open("/dev/dri/by-path/platform-gpu-card", O_RDWR); // VideoCore VI (Raspberry Pi 4)
++    platform.fd = open(dsl_drm_card(), O_RDWR); // VideoCore VI (Raspberry Pi 4)
+     if (platform.fd != -1) TRACELOG(LOG_INFO, "DISPLAY: platform-gpu-card opened successfully");
+ 
+     drmModeRes *res = NULL;
