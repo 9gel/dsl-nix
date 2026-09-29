@@ -6,14 +6,15 @@ bao (Cube.002), the chip body (Cube.001) and the pins
 RJ45 socket is cut out of the bao.
 Modifiers are applied. The pins are split into two walking
 groups: A and B step in turn, like a trotting insect. The rear
-pin on Blender -Y (glTF +Z) is its own file, so it can lift
-like a dog's hind leg; it walks with B.
+three pins on Blender -Y (glTF +Z) are files of their own, so
+they can lift like a dog's hind leg; each still walks with its
+group.
 
   Blender -b model_for_dslan.blend \
     --python bao-3d-export.py -- OUT_DIR
 
 Writes bao-3d-body.glb, bao-3d-legs-a.glb, bao-3d-legs-b.glb
-and bao-3d-leg-hind.glb.
+and bao-3d-hind-1.glb (rearmost) to bao-3d-hind-3.glb.
 glTF is Y-up: Blender X stays X, Blender Z is Y.
 """
 
@@ -85,7 +86,7 @@ def pin_groups(obj):
 
     Pins stand in two rows at +Y and -Y, four along X. A is
     rows' 1st and 3rd on +Y with 2nd and 4th on -Y. The hind
-    pin is the 1st (lowest X, rear) on -Y, which is in B.
+    pins are the 1st to 3rd (lowest X is rear) on -Y: B, A, B.
     """
     bm = bmesh.new()
     bm.from_mesh(obj.data)
@@ -121,7 +122,7 @@ def pin_groups(obj):
         start = 0 if side > 0 else 1
         group_a.update(i for _, i in row[start::2])
         if side < 0:
-            hind = row[0][1]
+            hind = [i for _, i in row[:3]]
     return group_a, hind
 
 
@@ -177,13 +178,14 @@ def main():
     pins_a = baked("Cube.006", PIN)
     group_a, hind = pin_groups(pins_a)
     pins_b = baked("Cube.006", PIN)
-    pin_hind = baked("Cube.006", PIN)
-    keep_pins(pins_a, group_a)
-    keep_pins(pins_b, set(range(8)) - group_a - {hind})
-    keep_pins(pin_hind, {hind})
+    keep_pins(pins_a, group_a - set(hind))
+    keep_pins(pins_b, set(range(8)) - group_a - set(hind))
     export([pins_a], "bao-3d-legs-a.glb")
     export([pins_b], "bao-3d-legs-b.glb")
-    export([pin_hind], "bao-3d-leg-hind.glb")
+    for n, index in enumerate(hind, 1):
+        pin = baked("Cube.006", PIN)
+        keep_pins(pin, {index})
+        export([pin], f"bao-3d-hind-{n}.glb")
 
 
 main()

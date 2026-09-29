@@ -38,10 +38,12 @@ static const double k_pi = 3.14159265358979323846;
    corner is the origin; walls stand on x = 0 and z = 0. The bao
    wanders EDGE_LO..EDGE_HI on both floor axes. It steers off
    the walls there, but only CORNER..EDGE_HI is hard: it walks
-   in to CORNER to pee. */
+   in near the corner, to PEE_X, PEE_Z, to pee. */
 static const double EDGE_LO = 9.0;
 static const double EDGE_HI = 50.0;
 static const double CORNER = 6.5;
+static const double PEE_X = 8.0;
+static const double PEE_Z = 10.0;
 static const double AVOID = 8.0;
 static const double WALK = 7.0;
 static const double RUN = 26.0;
@@ -62,10 +64,11 @@ static const double LOOK_TIME = 4.5;
 static const double PEE_TIME = 4.5;
 static const double SEEK_MAX = 20.0;
 /* The camera looks down the room diagonal. To look up, the bao
-   turns side-on to it (either way), so the lean shows. To pee it
-   faces the viewer, rear to the corner: the hind pin (local +Z)
-   then lifts toward the left wall, in plain view. */
+   turns side-on to it (either way), so the stretch shows. To pee
+   it turns side-on facing screen right: rear to the left wall,
+   lifted pins (local +Z) toward the viewer. */
 static const double FACE_VIEW = 0.785398163397448;
+static const double FACE_PEE = -0.785398163397448;
 
 enum { WALKING, LOOKING, SEEKING, PEEING };
 
@@ -165,7 +168,7 @@ static double wander(Bao *b, double dt, double r1, double r2)
 static void walk(Bao *b, double dt, double r1, double r2)
 {
     double speed_to = WALK, look_to = 0, lift_to = 0;
-    double omega = 0, rate, ease, dist;
+    double omega = 0, rate, ease, dist, want;
     dt = clampd(dt, 0, DT_MAX);
     b->act += dt;
     switch (b->mode) {
@@ -177,10 +180,12 @@ static void walk(Bao *b, double dt, double r1, double r2)
             set_mode(b, WALKING);
         break;
     case SEEKING:
-        dist = hypot(b->x - CORNER, b->z - CORNER);
-        speed_to = fmin(WALK, 1 + dist);
-        omega = steer(
-            b, atan2(CORNER - b->z, CORNER - b->x), TURN_MAX * 1.5, dt);
+        /* Slow for turns, so it cannot orbit the spot. */
+        dist = hypot(b->x - PEE_X, b->z - PEE_Z);
+        want = atan2(PEE_Z - b->z, PEE_X - b->x);
+        speed_to = fmin(WALK, 1 + dist)
+            * fmax(0, cos(wrap_angle(want - b->heading)));
+        omega = steer(b, want, TURN_MAX * 1.5, dt);
         if (dist < 0.8)
             set_mode(b, PEEING);
         else if (b->act > SEEK_MAX)
@@ -188,7 +193,7 @@ static void walk(Bao *b, double dt, double r1, double r2)
         break;
     case PEEING:
         speed_to = 0;
-        omega = steer(b, FACE_VIEW, TURN_MAX * 1.5, dt);
+        omega = steer(b, FACE_PEE, TURN_MAX * 1.5, dt);
         lift_to = b->act > 1.0 && b->act < PEE_TIME - 0.6 ? 1 : 0;
         if (b->lift > 0.8)
             b->puddle = fmin(1, b->puddle + dt * 0.4);
@@ -364,7 +369,7 @@ static int check(void)
     if (b.mode != WALKING || !(b.look < 0.2))
         return fail("look ends");
 
-    /* Pee: walk to the corner, face the viewer, lift, puddle. */
+    /* Pee: walk to the spot, turn side-on, lift, puddle. */
     b = bao_at(40, 30, 0);
     b.wander = 0;
     walk(&b, 1.0 / 60, P_LOOK + 0.01, 0.5);
@@ -374,13 +379,13 @@ static int check(void)
         walk(&b, 1.0 / 60, 0.5, 0.5);
     if (b.mode != PEEING)
         return fail("reaches corner");
-    if (hypot(b.x - CORNER, b.z - CORNER) > 1)
+    if (hypot(b.x - PEE_X, b.z - PEE_Z) > 1)
         return fail("pee spot");
     run_for(&b, 3, 0.5, 0.5);
     if (!(b.lift > 0.8) || !(b.puddle > 0))
         return fail("pee pose");
-    if (fabs(wrap_angle(b.heading - FACE_VIEW)) > 0.01)
-        return fail("pee faces viewer");
+    if (fabs(wrap_angle(b.heading - FACE_PEE)) > 0.01)
+        return fail("pee side-on");
     run_for(&b, PEE_TIME, 0.5, 0.5);
     if (b.mode != WALKING || !(b.lift < 0.2))
         return fail("pee ends");
@@ -474,8 +479,9 @@ static const Color ROOM_RED = {255, 31, 68, 255};
    walls they do not lie on. colSpecular.r is shine, from the
    glTF metallic factor: a sun highlight, a rim glint and red
    bounce light from the floor. bend and sway deform the bao
-   above y = 2 in model space: it leans back to look up, and
-   glances side to side. Keep them 0 for anything else. */
+   above y = 2 in model space: to look up it draws in, stretches
+   up and tips a little forward, and glances side to side.
+   Keep them 0 for anything else. */
 static const char *VS =
     "attribute vec3 vertexPosition;\n"
     "attribute vec3 vertexNormal;\n"
@@ -489,8 +495,9 @@ static const char *VS =
     "void main() {\n"
     "  vec3 q = vertexPosition;\n"
     "  float t = smoothstep(2.0, 7.0, q.y);\n"
-    "  q.x -= bend * t * t * 2.6;\n"
-    "  q.y += bend * t * 0.4;\n"
+    "  q.xz *= 1.0 - 0.22 * bend * t;\n"
+    "  q.y += bend * t * t * 1.8;\n"
+    "  q.x += bend * t * t * 0.8;\n"
     "  q.z += sway * t * t;\n"
     "  fragPos = (matModel * vec4(q, 1.0)).xyz;\n"
     "  fragNormal = (matNormal * vec4(vertexNormal, 0.0)).xyz;\n"
@@ -702,18 +709,23 @@ static int take_tap(
     return 1;
 }
 
+enum { HIND_N = 3 };
+
 typedef struct {
-    Model body, legs_a, legs_b, hind;
+    Model body, legs_a, legs_b, hind[HIND_N];
     float floor_y;
-    Matrix raise_pivot, raise_back;
-    Vector3 foot;
+    Matrix hip[HIND_N], hip_back[HIND_N], tilt, tilt_back;
+    Matrix sit, sit_back;
+    Vector3 tail;
     int bend_loc, sway_loc;
     Shader lit;
 } Parts;
 
 static const Color PEE = {255, 212, 40, 255};
-/* Where the stream from the lifted pin meets the left wall. */
-static const float PEE_Z = 12.5f;
+/* Hind pins, rearmost first: how far each swings up, in rad, and
+   whether it walks with group A (else B). */
+static const float HIND_SWING[HIND_N] = {1.4f, 0.8f, 0.6f};
+static const int HIND_IN_A[HIND_N] = {0, 1, 0};
 
 /* Legs trot: a group swings forward while lifted, then plants
    and pushes back. A and B run half a cycle apart. */
@@ -736,34 +748,50 @@ static void set_float(const Parts *p, int loc, float v)
     SetShaderValue(p->lit, loc, &v, SHADER_UNIFORM_FLOAT);
 }
 
-/* The hind pin swings up and out about its hip, like a dog's
-   hind leg, and the body rolls a little the other way. */
-static Matrix hind_raise(const Parts *p, double lift)
+/* A rotation through a pivot: pivot, turn, back. */
+static Matrix turn_at(Matrix pivot, Matrix turn, Matrix back)
 {
-    return MatrixMultiply(
-        MatrixMultiply(p->raise_pivot, MatrixRotateX((float)(-1.0 * lift))),
-        p->raise_back);
+    return MatrixMultiply(MatrixMultiply(pivot, turn), back);
 }
 
-static void draw_pee(const Parts *p, const Bao *b, Matrix hind_world,
+/* The stream leaves the middle of the chip's rear and arcs
+   backward to whichever wall it meets. The puddle stays where
+   the last stream landed. */
+static void draw_pee(const Parts *p, const Bao *b, Matrix world,
                      double now)
 {
-    Vector3 from = Vector3Transform(p->foot, hind_world);
-    Vector3 to = {0.3f, 1.2f, PEE_Z};
+    static Vector3 pool;
+    Vector3 from = Vector3Transform(p->tail, world);
+    Vector3 behind = Vector3Transform(
+        Vector3Add(p->tail, (Vector3){-1, 0, 0}), world);
+    Vector3 dir = Vector3Normalize(
+        (Vector3){behind.x - from.x, 0, behind.z - from.z});
+    float reach = 1e6f, rise;
+    Vector3 to;
     int i, n = 28;
+    if (dir.x < -1e-3f)
+        reach = fminf(reach, (from.x - 0.3f) / -dir.x);
+    if (dir.z < -1e-3f)
+        reach = fminf(reach, (from.z - 0.3f) / -dir.z);
+    reach = fminf(reach, 12);
+    to = (Vector3){
+        from.x + dir.x * reach, 1.2f, from.z + dir.z * reach};
+    rise = fminf(3, reach * 0.35f);
+    if (b->mode == PEEING && b->lift > 0.8)
+        pool = (Vector3){
+            to.x - dir.x * 0.8f, 0.04f, to.z - dir.z * 0.8f};
     if (b->puddle > 0) {
         float r = (float)(0.8 + 2.4 * sqrt(b->puddle));
         Color c = PEE;
         c.a = (unsigned char)(150 * fmin(1, b->puddle * 4));
-        DrawCylinder(
-            (Vector3){1.0f, 0.04f, PEE_Z}, r, r, 0.02f, 32, c);
+        DrawCylinder(pool, r, r, 0.02f, 32, c);
     }
     if (b->mode != PEEING || b->lift < 0.8)
         return;
     for (i = 0; i < n; i++) {
         float s = (float)fmod((double)i / n + now * 1.6, 1);
         Vector3 at = Vector3Lerp(from, to, s);
-        at.y += (float)(sin(k_pi * s) * 2.0);
+        at.y += (float)(sin(k_pi * s)) * rise;
         DrawSphereEx(at, 0.18f, 4, 6, PEE);
     }
 }
@@ -776,17 +804,25 @@ static void draw_bao(const Parts *p, const Bao *b, double squash,
     float bob = (float)(fabs(sin(b->phase)) * 0.25 * stride);
     float wide = (float)(1 + (1 - squash) * 0.5);
     float shadow = (float)(4.2 / (1 + b->y * 0.08));
+    /* Peeing, the chip sits back like a dog: the rear drops and
+       the nose rises, and it leans a little onto its far pins
+       (-Z), off the lifted near side. */
+    Matrix pose = MatrixMultiply(
+        turn_at(
+            p->sit, MatrixRotateZ((float)(0.2 * b->lift)), p->sit_back),
+        turn_at(
+            p->tilt, MatrixRotateX((float)(-0.12 * b->lift)),
+            p->tilt_back));
     Matrix world = MatrixMultiply(
         MatrixMultiply(
-            MatrixMultiply(
-                MatrixScale(wide, (float)squash, wide),
-                MatrixRotateX((float)(-0.12 * b->lift))),
+            MatrixMultiply(MatrixScale(wide, (float)squash, wide), pose),
             MatrixRotateY((float)(-b->heading + b->spin))),
         MatrixTranslate(
             (float)b->x, p->floor_y + (float)b->y + bob, (float)b->z));
+    Matrix off_a = leg_offset(b->phase, stride);
     Matrix off_b = leg_offset(b->phase + k_pi, stride);
-    Matrix hind = MatrixMultiply(off_b, hind_raise(p, b->lift));
-    draw_pee(p, b, MatrixMultiply(hind, world), now);
+    int i;
+    draw_pee(p, b, world, now);
     DrawCylinder(
         (Vector3){(float)b->x, 0.05f, (float)b->z},
         shadow, shadow, 0.02f, 24, (Color){90, 0, 20, 110});
@@ -795,9 +831,19 @@ static void draw_bao(const Parts *p, const Bao *b, double squash,
     draw_part(p->body, MatrixIdentity(), world);
     set_float(p, p->bend_loc, 0);
     set_float(p, p->sway_loc, 0);
-    draw_part(p->legs_a, leg_offset(b->phase, stride), world);
+    draw_part(p->legs_a, off_a, world);
     draw_part(p->legs_b, off_b, world);
-    draw_part(p->hind, hind, world);
+    for (i = 0; i < HIND_N; i++) {
+        /* Up and back, and a little out: a dog's hind leg. */
+        float a = (float)(HIND_SWING[i] * b->lift);
+        Matrix raise = turn_at(
+            p->hip[i],
+            MatrixMultiply(MatrixRotateZ(-a), MatrixRotateX(-0.4f * a)),
+            p->hip_back[i]);
+        draw_part(
+            p->hind[i],
+            MatrixMultiply(HIND_IN_A[i] ? off_a : off_b, raise), world);
+    }
 }
 
 static void present(Texture2D tex, int turn, int fw, int fh)
@@ -816,7 +862,7 @@ static int run(void)
     const char *qr_path = asset("DSL_BAO_QR", DSL_BAO_QR);
     const char *sound_dir = asset("DSL_BAO_SOUNDS", DSL_BAO_SOUNDS);
     const char *shot = getenv("DSL_BAO_SHOT");
-    int turn, fw, fh, lw, lh, sound_count, down = 0, frame = 0;
+    int turn, fw, fh, lw, lh, sound_count, down = 0, frame = 0, i;
     Model floor, wall_x, wall_z;
     Parts p;
     Shader lit;
@@ -856,7 +902,9 @@ static int run(void)
         || !load_model(dir, "bao-3d-body.glb", &p.body)
         || !load_model(dir, "bao-3d-legs-a.glb", &p.legs_a)
         || !load_model(dir, "bao-3d-legs-b.glb", &p.legs_b)
-        || !load_model(dir, "bao-3d-leg-hind.glb", &p.hind)) {
+        || !load_model(dir, "bao-3d-hind-1.glb", &p.hind[0])
+        || !load_model(dir, "bao-3d-hind-2.glb", &p.hind[1])
+        || !load_model(dir, "bao-3d-hind-3.glb", &p.hind[2])) {
         CloseWindow();
         return fail("model or shader failed");
     }
@@ -867,7 +915,8 @@ static int run(void)
     use_shader(&p.body, lit);
     use_shader(&p.legs_a, lit);
     use_shader(&p.legs_b, lit);
-    use_shader(&p.hind, lit);
+    for (i = 0; i < HIND_N; i++)
+        use_shader(&p.hind[i], lit);
     floor = room_part(
         lit, (Vector3){ROOM, 1, ROOM},
         (Vector3){ROOM / 2, -0.5f, ROOM / 2});
@@ -879,13 +928,31 @@ static int run(void)
         (Vector3){ROOM / 2, WALL_H / 2, -0.5f});
     box = GetModelBoundingBox(p.legs_a);
     p.floor_y = -box.min.y;
-    /* Hip: inner top of the hind pin. Foot: its outer bottom. */
-    box = GetModelBoundingBox(p.hind);
-    p.raise_pivot = MatrixTranslate(
-        -(box.min.x + box.max.x) / 2, -box.max.y, -box.min.z);
-    p.raise_back = MatrixInvert(p.raise_pivot);
-    p.foot = (Vector3){
-        (box.min.x + box.max.x) / 2, box.min.y, box.max.z};
+    /* Tilt about the far pins' feet. */
+    p.tilt = MatrixTranslate(0, p.floor_y, -box.min.z);
+    p.tilt_back = MatrixInvert(p.tilt);
+    /* Sit about a floor point just ahead of the middle: the rear
+       sinks, partly below the floor. */
+    p.sit = MatrixTranslate(-1.5f, p.floor_y, 0);
+    p.sit_back = MatrixInvert(p.sit);
+    /* Hip: inner top of each hind pin. */
+    for (i = 0; i < HIND_N; i++) {
+        box = GetModelBoundingBox(p.hind[i]);
+        p.hip[i] = MatrixTranslate(
+            -(box.min.x + box.max.x) / 2, -box.max.y, -box.min.z);
+        p.hip_back[i] = MatrixInvert(p.hip[i]);
+    }
+    /* Tail: middle of the chip's rear face. The chip is the body
+       mesh that sits lowest. */
+    box = GetMeshBoundingBox(p.body.meshes[0]);
+    for (i = 1; i < p.body.meshCount; i++) {
+        BoundingBox m = GetMeshBoundingBox(p.body.meshes[i]);
+        if (m.max.y < box.max.y)
+            box = m;
+    }
+    p.tail = (Vector3){
+        box.min.x, (box.min.y + box.max.y) / 2,
+        (box.min.z + box.max.z) / 2};
     box = GetModelBoundingBox(p.body);
     hit_y = p.floor_y + (box.min.y + box.max.y) / 2;
     hit_r = (box.max.x - box.min.x) * 0.6f;
