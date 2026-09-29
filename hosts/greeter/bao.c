@@ -32,7 +32,7 @@
 #endif
 
 static const double k_pi = 3.14159265358979323846;
-static const double CRUISE = 200.0;
+static const double CRUISE = 300.0;
 static const double MAX_SPEED = 1700.0;
 static const double DAMP = 1.35;
 static const double JUMP_UP = 1400.0;
