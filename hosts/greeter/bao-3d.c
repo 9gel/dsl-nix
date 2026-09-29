@@ -294,7 +294,9 @@ static const Color ROOM_RED = {255, 31, 68, 255};
 
 /* Lambert sun plus sky. With roomShade 1, a cheap corner shade
    from world position: room surfaces darken near the floor and
-   walls they do not lie on. */
+   walls they do not lie on. colSpecular.r is shine, from the
+   glTF metallic factor: a sun highlight, a rim glint and red
+   bounce light from the floor. */
 static const char *VS =
     "attribute vec3 vertexPosition;\n"
     "attribute vec3 vertexNormal;\n"
@@ -311,6 +313,8 @@ static const char *VS =
 static const char *FS =
     "uniform vec4 colDiffuse;\n"
     "uniform float roomShade;\n"
+    "uniform vec4 colSpecular;\n"
+    "uniform vec3 viewPos;\n"
     "varying vec3 fragNormal;\n"
     "varying vec3 fragPos;\n"
     "void main() {\n"
@@ -321,7 +325,14 @@ static const char *FS =
     "  float d = min(min(p.x, p.y), p.z);\n"
     "  float ao = 1.0 - roomShade * 0.28"
     " * (1.0 - smoothstep(0.0, 14.0, d));\n"
-    "  gl_FragColor = vec4(colDiffuse.rgb * lit * ao, 1.0);\n"
+    "  vec3 v = normalize(viewPos - fragPos);\n"
+    "  float shine = colSpecular.r;\n"
+    "  float spec = pow(max(dot(n, normalize(sun + v)), 0.0), 48.0);\n"
+    "  float rim = pow(1.0 - max(dot(n, v), 0.0), 3.0);\n"
+    "  vec3 bounce = vec3(1.0, 0.12, 0.27) * max(-n.y, 0.0);\n"
+    "  vec3 col = colDiffuse.rgb * lit * ao"
+    " + shine * (0.9 * spec + 0.35 * rim + 0.3 * bounce);\n"
+    "  gl_FragColor = vec4(col, 1.0);\n"
     "}\n";
 
 static Shader load_lit(void)
@@ -340,14 +351,24 @@ static Shader load_lit(void)
     sh = LoadShaderFromMemory(vs, fs);
     sh.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocation(sh, "matModel");
     sh.locs[SHADER_LOC_MATRIX_NORMAL] = GetShaderLocation(sh, "matNormal");
+    sh.locs[SHADER_LOC_COLOR_SPECULAR] =
+        GetShaderLocation(sh, "colSpecular");
+    sh.locs[SHADER_LOC_VECTOR_VIEW] = GetShaderLocation(sh, "viewPos");
     return sh;
 }
 
+/* Also turns the glTF metallic factor into shine. Default
+   materials, like the room's, have 0. */
 static void use_shader(Model *m, Shader sh)
 {
     int i;
-    for (i = 0; i < m->materialCount; i++)
+    for (i = 0; i < m->materialCount; i++) {
+        MaterialMap *maps = m->materials[i].maps;
+        float metal = Clamp(maps[MATERIAL_MAP_METALNESS].value, 0, 1);
+        unsigned char s = (unsigned char)(metal * 255);
         m->materials[i].shader = sh;
+        maps[MATERIAL_MAP_SPECULAR].color = (Color){s, s, s, 255};
+    }
 }
 
 static Model room_part(Shader sh, Vector3 size, Vector3 at)
@@ -625,6 +646,9 @@ static int run(void)
     cam.up = (Vector3){0, 1, 0};
     cam.fovy = 34;
     cam.projection = CAMERA_PERSPECTIVE;
+    SetShaderValue(
+        lit, lit.locs[SHADER_LOC_VECTOR_VIEW], &cam.position,
+        SHADER_UNIFORM_VEC3);
 
     for (;;) {
         double dt = GetFrameTime();

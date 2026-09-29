@@ -21,20 +21,24 @@ import bmesh
 import bpy
 
 OUT = Path(sys.argv[sys.argv.index("--") + 1])
-BAO = (0.97, 0.95, 0.92, 1)
-CHIP = (0.90, 0.90, 0.91, 1)
-PIN = (0.80, 0.80, 0.83, 1)
+# (base colour, metallic, roughness). bao-3d.c reads metallic
+# as how shiny a part is: matte bao, satin chip, silver pins.
+BAO = ((0.97, 0.95, 0.92, 1), 0.0, 0.6)
+CHIP = ((0.16, 0.16, 0.17, 1), 0.35, 0.45)
+PIN = ((0.64, 0.65, 0.68, 1), 1.0, 0.25)
 
 
-def material(name, rgba):
+def material(name, look):
+    rgba, metallic, roughness = look
     mat = bpy.data.materials.new(name)
     bsdf = mat.node_tree.nodes["Principled BSDF"]
     bsdf.inputs["Base Color"].default_value = rgba
-    bsdf.inputs["Roughness"].default_value = 0.6
+    bsdf.inputs["Metallic"].default_value = metallic
+    bsdf.inputs["Roughness"].default_value = roughness
     return mat
 
 
-def baked(name, rgba):
+def baked(name, look):
     """New object: the source mesh with modifiers applied."""
     src = bpy.data.objects[name]
     # The depsgraph here is the viewport one. Match the render.
@@ -44,7 +48,7 @@ def baked(name, rgba):
     mesh = bpy.data.meshes.new_from_object(src.evaluated_get(deps))
     mesh.transform(src.matrix_world)
     mesh.materials.clear()
-    mesh.materials.append(material(name + "-mat", rgba))
+    mesh.materials.append(material(name + "-mat", look))
     for poly in mesh.polygons:
         poly.material_index = 0
         poly.use_smooth = True
