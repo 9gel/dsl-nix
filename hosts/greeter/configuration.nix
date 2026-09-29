@@ -18,7 +18,7 @@ in
     # No page-size-16k. That build has no cache.
     sd-image
   ] ++ [
-    ./display.nix
+    ./bao.nix
   ];
 
   boot.kernelPackages = pkgs.linuxPackages_rpi5;
