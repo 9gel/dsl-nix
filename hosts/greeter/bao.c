@@ -773,7 +773,9 @@ static int run(void)
         || !require_file(qr_path, "qr"))
         return 1;
 
-    InitWindow(0, 0, "dsl-bao");
+    /* InitWindow(0, 0) copies an unset display size, then
+       the nearest-mode search picks the smallest mode. */
+    InitWindow(2560, 1440, "dsl-bao");
     if (!IsWindowReady()) {
         fprintf(stderr, "dsl-bao: display did not open\n");
         return 1;
@@ -782,6 +784,7 @@ static int run(void)
     SetTargetFPS(60);
     fw = GetScreenWidth();
     fh = GetScreenHeight();
+    fprintf(stderr, "dsl-bao: mode %dx%d\n", fw, fh);
     turn = screen_turn();
     logical_size(turn, fw, fh, &lw, &lh);
     if (lw < 16 || lh < 16) {
