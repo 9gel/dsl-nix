@@ -187,10 +187,8 @@
       "wireplumber.service"
       "graphical-session.target"
     ];
-    # No window. offscreen skips the X11 plugin, which aborts
-    # the service when it starts before the GNOME display is up
-    # and then leaves Spotify streams stuck.
-    environment.QT_QPA_PLATFORM = "offscreen";
+    # After the display is up. Earlier, Qt xcb aborts and Spotify
+    # stays corked. No offscreen: the menu raises this process.
     serviceConfig = {
       ExecStart =
         "${pkgs.easyeffects}/bin/easyeffects"
