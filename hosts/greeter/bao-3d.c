@@ -3,9 +3,9 @@
    The bao chip from model_for_dslan.blend paces the corner of a
    red room. A tap on it makes it jump, spin and yell. A wave
    on the webcam makes it face the camera and look up, with an
-   exclamation that jumps up beside its head. The screen
-   turn, touch, QR, captions and sounds follow bao.c.
-   --check needs no display.
+   exclamation that jumps up beside its head and says "huh?".
+   The screen turn, touch, QR, captions and sounds follow
+   bao.c. --check needs no display.
 */
 
 #include <math.h>
@@ -861,14 +861,41 @@ static int load_sounds(const char *dir, Sound *out)
     return n;
 }
 
-static void play_hit(Sound *sounds, int count)
+static Sound load_wav(const char *dir, const char *name)
+{
+    char path[512];
+    Sound none = {0};
+    if (dir[0] == '\0' || !IsAudioDeviceReady())
+        return none;
+    snprintf(path, sizeof path, "%s/%s.wav", dir, name);
+    if (!FileExists(path)) {
+        fprintf(stderr, "dsl-bao-3d: missing %s\n", path);
+        return none;
+    }
+    return LoadSound(path);
+}
+
+static void play_hit(Sound *sounds, int count, Sound huh)
 {
     int i;
     if (count <= 0 || !IsAudioDeviceReady())
         return;
     for (i = 0; i < count; i++)
         StopSound(sounds[i]);
+    if (huh.frameCount > 0)
+        StopSound(huh);
     PlaySound(sounds[GetRandomValue(0, count - 1)]);
+}
+
+static void play_huh(Sound *hits, int count, Sound huh)
+{
+    int i;
+    if (huh.frameCount == 0 || !IsAudioDeviceReady())
+        return;
+    for (i = 0; i < count; i++)
+        StopSound(hits[i]);
+    StopSound(huh);
+    PlaySound(huh);
 }
 
 static int take_tap(
@@ -1181,7 +1208,7 @@ static int run(void)
     Texture2D qr;
     Font font;
     RenderTexture2D scene;
-    Sound sounds[4];
+    Sound sounds[4], huh;
     Camera3D cam;
     BoundingBox box;
     Bao b = bao_at(34, 26, 2.4);
@@ -1283,6 +1310,7 @@ static int run(void)
         return fail("asset upload failed");
     }
     sound_count = load_sounds(sound_dir, sounds);
+    huh = load_wav(sound_dir, "huh");
     cap = fit_caption(
         font, lw - lh * QR_FRACTION - 3 * fmaxf(16, lh * 0.02f),
         lh * QR_FRACTION);
@@ -1314,14 +1342,16 @@ static int run(void)
                 + (GetRandomValue(-60, 60) * k_pi / 180);
             poke(&b, hit, flee);
             if (hit) {
-                play_hit(sounds, sound_count);
+                play_hit(sounds, sound_count, huh);
                 (void)take_wave(wave_fd);
             }
             squash = 0.7;
         }
         down = GetTouchPointCount() > 0;
-        if (!hit && b.y == 0 && take_wave(wave_fd))
+        if (!hit && b.y == 0 && take_wave(wave_fd)) {
             notice(&b);
+            play_huh(sounds, sound_count, huh);
+        }
         walk(&b, dt, GetRandomValue(0, 999) / 1000.0,
              GetRandomValue(0, 999) / 1000.0);
         squash += (1 - squash) * fmin(1, dt * 8);

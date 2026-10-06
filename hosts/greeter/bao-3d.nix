@@ -51,6 +51,7 @@ let
       -s 138 -p 48 "don't touch me!"
     espeak-ng -w "$out/stop-it.wav" \
       -s 160 -p 75 "Stop it!"
+    espeak-ng -w "$out/huh.wav" -v en+f3 -s 155 -p 90 "huh?"
     python3 ${./bao.py} --write-boing "$out/boing.wav"
   '';
   qrPng = pkgs.runCommand "dsl-bao-qr.png" {
