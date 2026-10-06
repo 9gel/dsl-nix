@@ -3,8 +3,9 @@
    The bao chip from model_for_dslan.blend paces the corner of a
    red room. A tap on it makes it jump, spin and yell. A wave
    on the webcam makes it face the camera and look up, with an
-   exclamation by its head. The screen turn, touch, QR,
-   captions and sounds follow bao.c. --check needs no display.
+   exclamation that jumps up beside its head. The screen
+   turn, touch, QR, captions and sounds follow bao.c.
+   --check needs no display.
 */
 
 #include <math.h>
@@ -80,6 +81,8 @@ static const double FACE_PEE = FACE_VIEW;
 static const double CAM_X = 84;
 static const double CAM_Z = 84;
 static const double NOTICE_LOOK = 3.0;
+/* Seconds for the exclamation's jump, then its stretch. */
+static const double MARK_POP = 0.40;
 
 enum { WALKING, LOOKING, SEEKING, PEEING, NOTICING };
 
@@ -87,7 +90,7 @@ typedef struct {
     double x, z, heading, speed, turn, wander;
     double y, vy, spin, spin_to, phase;
     int mode;
-    double act, look, lift, puddle, gait, aim, mark;
+    double act, look, lift, puddle, gait, aim, mark, pop;
 } Bao;
 
 typedef struct {
@@ -193,7 +196,7 @@ static void walk(Bao *b, double dt, double r1, double r2)
     case NOTICING:
         /* Face the camera first. The look clock stays put
            until the turn is done, then the same tip-back
-           plays. mark eases the exclamation in and out. */
+           plays. The exclamation jumps in beside the head. */
         speed_to = 0;
         omega = steer(b, b->aim, TURN_MAX * 1.5, dt);
         if (omega >= 0.01)
@@ -237,7 +240,16 @@ static void walk(Bao *b, double dt, double r1, double r2)
     ease = 1 - exp(-POSE_EASE * dt);
     b->look += (look_to - b->look) * ease;
     b->lift += (lift_to - b->lift) * ease;
-    b->mark += ((b->mode == NOTICING ? 1.0 : 0.0) - b->mark) * ease;
+    if (b->mode == NOTICING) {
+        b->pop += dt / MARK_POP;
+        if (b->pop > 1)
+            b->pop = 1;
+        b->mark = 1;
+    } else {
+        b->mark += (0.0 - b->mark) * ease;
+        if (b->mark < 0.02)
+            b->pop = 0;
+    }
     b->gait = clampd((b->speed + omega * 3) / WALK, 0, 1);
     if (b->y > 0 || b->vy > 0) {
         b->vy -= GRAVITY * dt;
@@ -279,6 +291,7 @@ static void notice(Bao *b)
 {
     set_mode(b, NOTICING);
     b->aim = face_camera(b);
+    b->pop = 0;
 }
 
 static int norm_turn(int turn)
@@ -358,6 +371,33 @@ static void local_side(
 static float head_reach(float rx, float rz, float lx, float lz)
 {
     return sqrtf((rx * lx) * (rx * lx) + (rz * lz) * (rz * lz));
+}
+
+/* Share of the pop that is the jump. The rest stretches. */
+static const float MARK_JUMP = 0.64f;
+
+/* t is 0..1. Starts small, below the spot, jumps up to full
+   size, then stretches tall once and settles. hop is added
+   to the ball's rest height. */
+static void mark_pose(float t, float *sx, float *sy, float *hop)
+{
+    float u, w;
+    if (t < 0)
+        t = 0;
+    if (t > 1)
+        t = 1;
+    if (t < MARK_JUMP) {
+        u = t / MARK_JUMP;
+        u = 1 - (1 - u) * (1 - u);
+        *sx = *sy = 0.22f + 0.78f * u;
+        *hop = sinf(u * (float)k_pi) * 3.2f - (1 - u) * 1.8f;
+        return;
+    }
+    u = (t - MARK_JUMP) / (1 - MARK_JUMP);
+    w = sinf(u * (float)k_pi);
+    *sy = 1 + 0.28f * w;
+    *sx = 1 - 0.14f * w;
+    *hop = 0;
 }
 
 static int check(void)
@@ -478,6 +518,40 @@ static int check(void)
         if (fabsf(reach - 4.0f) > 0.02f)
             return fail("mark reach front");
     }
+    {
+        float scx, scy, hop;
+        mark_pose(0, &scx, &scy, &hop);
+        if (!(scx < 0.35f) || fabsf(scx - scy) > 0.02f)
+            return fail("mark starts small");
+        if (!(hop < -0.5f))
+            return fail("mark jump start");
+        mark_pose(MARK_JUMP, &scx, &scy, &hop);
+        if (fabsf(scx - 1) > 0.02f || fabsf(scy - 1) > 0.02f)
+            return fail("mark full size");
+        if (fabsf(hop) > 0.02f)
+            return fail("mark landed");
+        mark_pose(0.82f, &scx, &scy, &hop);
+        if (!(scy > 1.1f) || !(scy > scx + 0.15f))
+            return fail("mark stretches");
+        if (fabsf(hop) > 0.02f)
+            return fail("stretch stays put");
+        mark_pose(1, &scx, &scy, &hop);
+        if (fabsf(scx - 1) > 0.02f || fabsf(scy - 1) > 0.02f)
+            return fail("mark settles");
+        if (fabsf(hop) > 0.02f)
+            return fail("mark hop ends");
+    }
+    b = bao_at(30, 30, 0);
+    b.pop = 0.7;
+    notice(&b);
+    if (b.pop != 0)
+        return fail("pop resets");
+    run_for(&b, 0.05, 0.5, 0.5);
+    if (!(b.pop > 0.05 && b.pop < 0.3))
+        return fail("mark pops");
+    run_for(&b, 1, 0.5, 0.5);
+    if (b.pop != 1 || b.mark != 1)
+        return fail("mark pop ends");
 
     /* Pee: walk to the spot, turn side-on, lift, puddle. */
     b = bao_at(40, 30, 0);
@@ -924,18 +998,25 @@ static float smooth3(float a, float b, float x)
 
 /* Yellow !. The rod is wider at the top. The ball sits under
    it, with a gap, a hair out from the head on the camera's
-   right. Flip it if that side would sink into a wall. The
-   bend matches the vertex shader. */
+   right. It jumps up from small, then stretches once. Flip
+   it if that side would sink into a wall. The bend matches
+   the vertex shader. */
 static void draw_mark(
     const Parts *p, const Bao *b, Matrix world, double now)
 {
     float s = (float)b->mark;
     float dx, dz, len, ux, uz, lx, lz, reach, dist;
-    float sx, sz, t, bend, sway;
+    float sx, sz, t, bend, sway, scx, scy, hop;
     float rod_h, top_r, bot_r, ball_r, gap;
-    Vector3 q, at, ball, rod_bot, rod_top;
+    Vector3 q, at, rod_bot, rod_top;
     Color ink = {255, 204, 32, 255};
-    if (s < 0.02f)
+    if (b->mode == NOTICING && b->pop < 1)
+        mark_pose((float)b->pop, &scx, &scy, &hop);
+    else {
+        scx = scy = s;
+        hop = 0;
+    }
+    if (scx < 0.02f)
         return;
     q = p->head;
     t = smooth3(2, 7, q.y);
@@ -953,7 +1034,7 @@ static void draw_mark(
     uz = -dx / len;
     local_side(
         ux, uz, (float)(-b->heading + b->spin), &lx, &lz);
-    ball_r = 1.15f * s;
+    ball_r = 1.15f;
     reach = head_reach(p->head_rx, p->head_rz, lx, lz);
     dist = reach + ball_r + 0.2f;
     sx = ux * dist;
@@ -964,16 +1045,19 @@ static void draw_mark(
         at.x -= 2 * sx;
         at.z -= 2 * sz;
     }
-    rod_h = 6.4f * s;
-    top_r = 1.25f * s;
-    bot_r = 0.48f * s;
-    gap = 0.7f * s;
-    ball = (Vector3){at.x, at.y - 1.2f * s, at.z};
-    rod_bot = (Vector3){at.x, ball.y + ball_r + gap, at.z};
-    rod_top = (Vector3){at.x, rod_bot.y + rod_h, at.z};
+    rod_h = 6.4f;
+    top_r = 1.25f;
+    bot_r = 0.48f;
+    gap = 0.7f;
+    rod_bot = (Vector3){0, ball_r + gap, 0};
+    rod_top = (Vector3){0, rod_bot.y + rod_h, 0};
     rlDisableShader();
+    rlPushMatrix();
+    rlTranslatef(at.x, at.y - 1.2f + hop, at.z);
+    rlScalef(scx, scy, scx);
     DrawCylinderEx(rod_bot, rod_top, bot_r, top_r, 18, ink);
-    DrawSphere(ball, ball_r, ink);
+    DrawSphere((Vector3){0, 0, 0}, ball_r, ink);
+    rlPopMatrix();
 }
 
 static void draw_bao(const Parts *p, const Bao *b, double squash,
