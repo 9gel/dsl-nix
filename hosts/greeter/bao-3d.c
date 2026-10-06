@@ -343,6 +343,23 @@ static void run_for(Bao *b, double seconds, double r1, double r2)
         walk(b, 1.0 / 60, r1, r2);
 }
 
+/* Camera-right (ux, uz) in the bao's xz. yaw is -heading
+   + spin, the same yaw as the model matrix. */
+static void local_side(
+    float ux, float uz, float yaw, float *lx, float *lz)
+{
+    float c = cosf(yaw);
+    float sn = sinf(yaw);
+    *lx = ux * c - uz * sn;
+    *lz = ux * sn + uz * c;
+}
+
+/* Half-extent of the head along a unit local xz direction. */
+static float head_reach(float rx, float rz, float lx, float lz)
+{
+    return sqrtf((rx * lx) * (rx * lx) + (rz * lz) * (rz * lz));
+}
+
 static int check(void)
 {
     Bao b = bao_at(30, 30, 0);
@@ -444,6 +461,23 @@ static int check(void)
     poke(&b, 1, 1.0);
     if (b.mode != WALKING || b.vy != JUMP_UP)
         return fail("tap beats wave");
+    /* Facing the camera, camera-right is the head's +Z side.
+       Straight at the front, it is the long axis. */
+    {
+        float lx, lz, reach;
+        local_side(
+            -0.70710678f, 0.70710678f,
+            (float)(-k_pi / 4), &lx, &lz);
+        if (fabsf(lx) > 0.02f || fabsf(lz - 1.0f) > 0.02f)
+            return fail("mark side");
+        reach = head_reach(4.0f, 3.0f, lx, lz);
+        if (fabsf(reach - 3.0f) > 0.02f)
+            return fail("mark reach");
+        local_side(1.0f, 0.0f, 0.0f, &lx, &lz);
+        reach = head_reach(4.0f, 3.0f, lx, lz);
+        if (fabsf(reach - 4.0f) > 0.02f)
+            return fail("mark reach front");
+    }
 
     /* Pee: walk to the spot, turn side-on, lift, puddle. */
     b = bao_at(40, 30, 0);
@@ -792,6 +826,7 @@ typedef struct {
     Matrix hip[HIND_N], hip_back[HIND_N], tilt, tilt_back;
     Matrix sit, sit_back;
     Vector3 tail, head;
+    float head_rx, head_rz;
     int bend_loc, sway_loc;
     Shader lit;
 } Parts;
@@ -888,14 +923,15 @@ static float smooth3(float a, float b, float x)
 }
 
 /* Yellow !. The rod is wider at the top. The ball sits under
-   it, with a gap. Unlit, on the camera's right of the head.
-   Flip it if that side would sink into a wall. The bend
-   matches the vertex shader. */
+   it, with a gap, a hair out from the head on the camera's
+   right. Flip it if that side would sink into a wall. The
+   bend matches the vertex shader. */
 static void draw_mark(
     const Parts *p, const Bao *b, Matrix world, double now)
 {
     float s = (float)b->mark;
-    float dx, dz, len, sx, sz, t, bend, sway;
+    float dx, dz, len, ux, uz, lx, lz, reach, dist;
+    float sx, sz, t, bend, sway;
     float rod_h, top_r, bot_r, ball_r, gap;
     Vector3 q, at, ball, rod_bot, rod_top;
     Color ink = {255, 204, 32, 255};
@@ -913,8 +949,15 @@ static void draw_mark(
     dx = (float)(CAM_TX - CAM_X);
     dz = (float)(CAM_TZ - CAM_Z);
     len = sqrtf(dx * dx + dz * dz);
-    sx = dz / len * 10.0f;
-    sz = -dx / len * 10.0f;
+    ux = dz / len;
+    uz = -dx / len;
+    local_side(
+        ux, uz, (float)(-b->heading + b->spin), &lx, &lz);
+    ball_r = 1.15f * s;
+    reach = head_reach(p->head_rx, p->head_rz, lx, lz);
+    dist = reach + ball_r + 0.2f;
+    sx = ux * dist;
+    sz = uz * dist;
     at.x += sx;
     at.z += sz;
     if (at.x < 2.0f || at.z < 2.0f) {
@@ -924,7 +967,6 @@ static void draw_mark(
     rod_h = 6.4f * s;
     top_r = 1.25f * s;
     bot_r = 0.48f * s;
-    ball_r = 1.15f * s;
     gap = 0.7f * s;
     ball = (Vector3){at.x, at.y - 1.2f * s, at.z};
     rod_bot = (Vector3){at.x, ball.y + ball_r + gap, at.z};
@@ -1144,6 +1186,8 @@ static int run(void)
     p.head = (Vector3){
         (box.min.x + box.max.x) / 2, box.max.y,
         (box.min.z + box.max.z) / 2};
+    p.head_rx = (box.max.x - box.min.x) * 0.5f;
+    p.head_rz = (box.max.z - box.min.z) * 0.5f;
 
     qr = LoadTexture(qr_path);
     font = LoadFontEx(font_path, 128, NULL, 0);
