@@ -1,9 +1,10 @@
 /* Dim Sum Labs 3D bao on the Pi display.
 
    The bao chip from model_for_dslan.blend paces the corner of a
-   red room. A tap on it makes it jump, spin and yell. The
-   screen turn, touch, QR, captions and sounds follow bao.c.
-   --check needs no display.
+   red room. A tap on it makes it jump, spin and yell. A wave
+   on the webcam makes it face the camera and look up, with an
+   exclamation by its head. The screen turn, touch, QR,
+   captions and sounds follow bao.c. --check needs no display.
 */
 
 #include <math.h>
@@ -15,6 +16,10 @@
 #include "raylib.h"
 #include "raymath.h"
 #include "rlgl.h"
+#include <fcntl.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
 #endif
 
 #ifndef DSL_SCREEN_TURN
@@ -63,21 +68,26 @@ static const double P_PEE = 0.04;
 static const double LOOK_TIME = 4.5;
 static const double PEE_TIME = 4.5;
 static const double SEEK_MAX = 20.0;
-/* The camera looks down the room diagonal. To look up, the bao
-   turns side-on to it (either way), so the lean shows. To pee
-   it faces the viewer, rear to the corner: its near hind pins
-   (local +Z) then lift out toward the left wall, in plain view,
-   like a dog's leg at a post. */
+/* The camera looks down the room diagonal from CAM_X, CAM_Z.
+   To look up on its own, the bao turns side-on to that view
+   (either way), so the lean shows. A wave aims it at the
+   camera, then plays the same lean. To pee it faces the
+   viewer, rear to the corner: its near hind pins (local +Z)
+   then lift out toward the left wall, in plain view, like a
+   dog's leg at a post. */
 static const double FACE_VIEW = 0.785398163397448;
 static const double FACE_PEE = FACE_VIEW;
+static const double CAM_X = 84;
+static const double CAM_Z = 84;
+static const double NOTICE_LOOK = 3.0;
 
-enum { WALKING, LOOKING, SEEKING, PEEING };
+enum { WALKING, LOOKING, SEEKING, PEEING, NOTICING };
 
 typedef struct {
     double x, z, heading, speed, turn, wander;
     double y, vy, spin, spin_to, phase;
     int mode;
-    double act, look, lift, puddle, gait, aim;
+    double act, look, lift, puddle, gait, aim, mark;
 } Bao;
 
 typedef struct {
@@ -165,7 +175,7 @@ static double wander(Bao *b, double dt, double r1, double r2)
 
 /* One tick. r1 and r2 are uniform in [0, 1) and drive the next
    wander decision: turn, stop and look up, or go pee in the
-   corner. */
+   corner. A wave is separate: notice(). */
 static void walk(Bao *b, double dt, double r1, double r2)
 {
     double speed_to = WALK, look_to = 0, lift_to = 0;
@@ -178,6 +188,18 @@ static void walk(Bao *b, double dt, double r1, double r2)
         omega = steer(b, b->aim, TURN_MAX * 1.5, dt);
         look_to = omega < 0.01 && b->act < LOOK_TIME - 0.7 ? 1 : 0;
         if (b->act > LOOK_TIME)
+            set_mode(b, WALKING);
+        break;
+    case NOTICING:
+        /* Face the camera first. The look clock stays put
+           until the turn is done, then the same tip-back
+           plays. mark eases the exclamation in and out. */
+        speed_to = 0;
+        omega = steer(b, b->aim, TURN_MAX * 1.5, dt);
+        if (omega >= 0.01)
+            b->act = 0;
+        look_to = b->act > 0.15 && b->act < NOTICE_LOOK ? 1 : 0;
+        if (b->act > NOTICE_LOOK + 0.8)
             set_mode(b, WALKING);
         break;
     case SEEKING:
@@ -215,6 +237,7 @@ static void walk(Bao *b, double dt, double r1, double r2)
     ease = 1 - exp(-POSE_EASE * dt);
     b->look += (look_to - b->look) * ease;
     b->lift += (lift_to - b->lift) * ease;
+    b->mark += ((b->mode == NOTICING ? 1.0 : 0.0) - b->mark) * ease;
     b->gait = clampd((b->speed + omega * 3) / WALK, 0, 1);
     if (b->y > 0 || b->vy > 0) {
         b->vy -= GRAVITY * dt;
@@ -245,6 +268,17 @@ static void poke(Bao *b, int hit, double flee)
     } else if (b->y == 0) {
         b->vy = MISS_JUMP;
     }
+}
+
+static double face_camera(const Bao *b)
+{
+    return atan2(CAM_Z - b->z, CAM_X - b->x);
+}
+
+static void notice(Bao *b)
+{
+    set_mode(b, NOTICING);
+    b->aim = face_camera(b);
 }
 
 static int norm_turn(int turn)
@@ -313,7 +347,7 @@ static int check(void)
 {
     Bao b = bao_at(30, 30, 0);
     double spin, peak = 0, t, r, x0, z0;
-    int i, turn, modes[4] = {0};
+    int i, turn, modes[5] = {0};
 
     for (i = 0; i < 200000; i++) {
         r = (double)((i * 7919) % 1000) / 1000;
@@ -369,6 +403,47 @@ static int check(void)
     run_for(&b, LOOK_TIME, 0.5, 0.5);
     if (b.mode != WALKING || !(b.look < 0.2))
         return fail("look ends");
+
+    /* Wave: stop, face the camera, then look up. The clock
+       waits out the turn, so a long turn cannot eat the look. */
+    b = bao_at(30, 30, 0);
+    notice(&b);
+    if (fabs(wrap_angle(b.aim - atan2(CAM_Z - 30, CAM_X - 30)))
+        > 1e-9)
+        return fail("faces camera");
+    if (fabs(fabs(wrap_angle(b.aim - FACE_VIEW)) - k_pi / 2) < 0.2)
+        return fail("wave is side-on");
+    run_for(&b, 0.25, 0.5, 0.5);
+    if (b.mode != NOTICING || b.look > 0.2)
+        return fail("look waits");
+    if (!(fabs(wrap_angle(b.heading - b.aim)) > 0.2))
+        return fail("still turning");
+    run_for(&b, 2.0, 0.5, 0.5);
+    if (b.mode != NOTICING)
+        return fail("wave still on");
+    if (fabs(wrap_angle(b.heading - b.aim)) > 0.01)
+        return fail("faced camera");
+    if (!(b.look > 0.8) || !(b.speed < 0.5) || !(b.mark > 0.8))
+        return fail("wave pose");
+    b = bao_at(50, 10, 0);
+    notice(&b);
+    if (fabs(wrap_angle(
+            b.aim - atan2(CAM_Z - 10, CAM_X - 50))) > 1e-9)
+        return fail("aim follows camera");
+    if (fabs(wrap_angle(b.aim - FACE_VIEW)) < 0.2)
+        return fail("aim is a fixed heading");
+    b = bao_at(30, 30, FACE_VIEW);
+    notice(&b);
+    run_for(&b, 0.5, 0.5, 0.5);
+    if (!(b.look > 0.5))
+        return fail("looks once faced");
+    run_for(&b, NOTICE_LOOK + 1.2, 0.5, 0.5);
+    if (b.mode != WALKING || !(b.look < 0.2) || !(b.mark < 0.2))
+        return fail("wave ends");
+    notice(&b);
+    poke(&b, 1, 1.0);
+    if (b.mode != WALKING || b.vy != JUMP_UP)
+        return fail("tap beats wave");
 
     /* Pee: walk to the spot, turn side-on, lift, puddle. */
     b = bao_at(40, 30, 0);
@@ -716,7 +791,7 @@ typedef struct {
     float floor_y;
     Matrix hip[HIND_N], hip_back[HIND_N], tilt, tilt_back;
     Matrix sit, sit_back;
-    Vector3 tail;
+    Vector3 tail, head;
     int bend_loc, sway_loc;
     Shader lit;
 } Parts;
@@ -796,6 +871,66 @@ static void draw_pee(const Parts *p, const Bao *b, Matrix world,
     }
 }
 
+static const double CAM_Y = 50;
+static const double CAM_TX = 27;
+static const double CAM_TY = 9;
+static const double CAM_TZ = 27;
+
+static float smooth3(float a, float b, float x)
+{
+    float t;
+    if (x <= a)
+        return 0;
+    if (x >= b)
+        return 1;
+    t = (x - a) / (b - a);
+    return t * t * (3 - 2 * t);
+}
+
+/* Unlit, so it reads on the red room. The bend matches the
+   vertex shader, and the mark sits on the camera's right.
+   Flip it if that side would sink into a wall. */
+static void draw_mark(
+    const Parts *p, const Bao *b, Matrix world, double now)
+{
+    float s = (float)b->mark;
+    float dx, dz, len, sx, sz, t, bend, sway, h, r;
+    Vector3 q, at, base, dot;
+    Color ink = {255, 196, 20, 255};
+    Color edge = {48, 0, 8, 255};
+    if (s < 0.02f)
+        return;
+    q = p->head;
+    t = smooth3(2, 7, q.y);
+    t = t * t;
+    bend = (float)b->look;
+    sway = bend * 0.6f * (float)sin(now * 1.3);
+    q.x -= bend * t * 2.2f;
+    q.y -= bend * t * 1.0f;
+    q.z += sway * t;
+    at = Vector3Transform(q, world);
+    dx = (float)(CAM_TX - CAM_X);
+    dz = (float)(CAM_TZ - CAM_Z);
+    len = sqrtf(dx * dx + dz * dz);
+    sx = dz / len * 10.0f;
+    sz = -dx / len * 10.0f;
+    at.x += sx;
+    at.z += sz;
+    if (at.x < 2.0f || at.z < 2.0f) {
+        at.x -= 2 * sx;
+        at.z -= 2 * sz;
+    }
+    h = 9.0f * s;
+    r = 1.05f * s;
+    base = (Vector3){at.x, at.y - h * 0.35f, at.z};
+    dot = (Vector3){at.x, base.y + h + r * 1.8f, at.z};
+    rlDisableShader();
+    DrawCylinder(base, r * 1.28f, r * 1.05f, h, 12, edge);
+    DrawCylinder(base, r, r * 0.82f, h, 12, ink);
+    DrawSphere(dot, r * 2.05f, edge);
+    DrawSphere(dot, r * 1.65f, ink);
+}
+
 static void draw_bao(const Parts *p, const Bao *b, double squash,
                      double now)
 {
@@ -845,6 +980,7 @@ static void draw_bao(const Parts *p, const Bao *b, double squash,
             p->hind[i],
             MatrixMultiply(HIND_IN_A[i] ? off_a : off_b, raise), world);
     }
+    draw_mark(p, b, world, now);
 }
 
 static void present(Texture2D tex, int turn, int fw, int fh)
@@ -856,6 +992,51 @@ static void present(Texture2D tex, int turn, int fw, int fh)
         (Vector2){0, 0}, (float)pl.rot, WHITE);
 }
 
+static const char *wave_path(void)
+{
+    const char *v = getenv("DSL_BAO_WAVE");
+    if (v != NULL && v[0] != '\0')
+        return v;
+    return "/tmp/dsl-bao-wave.sock";
+}
+
+static int open_wave(void)
+{
+    struct sockaddr_un addr;
+    const char *path = wave_path();
+    size_t n = strlen(path);
+    int fd, flags;
+    if (n >= sizeof addr.sun_path)
+        return -1;
+    fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+    if (fd < 0)
+        return -1;
+    memset(&addr, 0, sizeof addr);
+    addr.sun_family = AF_UNIX;
+    memcpy(addr.sun_path, path, n + 1);
+    unlink(path);
+    if (bind(fd, (struct sockaddr *)&addr, sizeof addr) < 0) {
+        close(fd);
+        fprintf(stderr, "dsl-bao-3d: wave socket failed\n");
+        return -1;
+    }
+    flags = fcntl(fd, F_GETFL, 0);
+    if (flags >= 0)
+        fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    return fd;
+}
+
+static int take_wave(int fd)
+{
+    char buf[8];
+    int got = 0;
+    if (fd < 0)
+        return 0;
+    while (recv(fd, buf, sizeof buf, 0) > 0)
+        got = 1;
+    return got;
+}
+
 static int run(void)
 {
     const char *dir = asset("DSL_BAO_MODELS", DSL_BAO_MODELS);
@@ -864,6 +1045,7 @@ static int run(void)
     const char *sound_dir = asset("DSL_BAO_SOUNDS", DSL_BAO_SOUNDS);
     const char *shot = getenv("DSL_BAO_SHOT");
     int turn, fw, fh, lw, lh, sound_count, down = 0, frame = 0, i;
+    int wave_fd = -1;
     Model floor, wall_x, wall_z;
     Parts p;
     Shader lit;
@@ -956,6 +1138,9 @@ static int run(void)
     box = GetModelBoundingBox(p.body);
     hit_y = p.floor_y + (box.min.y + box.max.y) / 2;
     hit_r = (box.max.x - box.min.x) * 0.6f;
+    p.head = (Vector3){
+        (box.min.x + box.max.x) / 2, box.max.y,
+        (box.min.z + box.max.z) / 2};
 
     qr = LoadTexture(qr_path);
     font = LoadFontEx(font_path, 128, NULL, 0);
@@ -973,31 +1158,39 @@ static int run(void)
     foot = fit_footer(font, lw / 2.0f, lh / 8.0f);
 
     /* ponytail: framing is by eye for a 9:16 portrait. */
-    cam.position = (Vector3){84, 50, 84};
-    cam.target = (Vector3){27, 9, 27};
+    cam.position = (Vector3){(float)CAM_X, (float)CAM_Y, (float)CAM_Z};
+    cam.target = (Vector3){
+        (float)CAM_TX, (float)CAM_TY, (float)CAM_TZ};
     cam.up = (Vector3){0, 1, 0};
     cam.fovy = 34;
     cam.projection = CAMERA_PERSPECTIVE;
     SetShaderValue(
         lit, lit.locs[SHADER_LOC_VECTOR_VIEW], &cam.position,
         SHADER_UNIFORM_VEC3);
+    wave_fd = open_wave();
 
     for (;;) {
         double dt = GetFrameTime();
         double now = GetTime();
         Vector2 tap;
+        int hit = 0;
         if (take_tap(turn, lw, lh, down, now, &last_tap, &tap)) {
             Ray ray = GetScreenToWorldRayEx(tap, cam, lw, lh);
             Vector3 c = {(float)b.x, hit_y + (float)b.y, (float)b.z};
-            int hit = GetRayCollisionSphere(ray, c, hit_r).hit;
-            double flee = atan2(b.z - ray.position.z, b.x - ray.position.x)
+            double flee;
+            hit = GetRayCollisionSphere(ray, c, hit_r).hit;
+            flee = atan2(b.z - ray.position.z, b.x - ray.position.x)
                 + (GetRandomValue(-60, 60) * k_pi / 180);
             poke(&b, hit, flee);
-            if (hit)
+            if (hit) {
                 play_hit(sounds, sound_count);
+                (void)take_wave(wave_fd);
+            }
             squash = 0.7;
         }
         down = GetTouchPointCount() > 0;
+        if (!hit && b.y == 0 && take_wave(wave_fd))
+            notice(&b);
         walk(&b, dt, GetRandomValue(0, 999) / 1000.0,
              GetRandomValue(0, 999) / 1000.0);
         squash += (1 - squash) * fmin(1, dt * 8);
@@ -1024,6 +1217,8 @@ static int run(void)
             Image im = LoadImageFromTexture(scene.texture);
             ImageFlipVertical(&im);
             ExportImage(im, shot);
+            if (wave_fd >= 0)
+                close(wave_fd);
             CloseWindow();
             return 0;
         }

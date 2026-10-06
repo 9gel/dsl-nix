@@ -117,6 +117,25 @@ let
       install -m 755 dsl-bao-3d $out/bin/dsl-bao-3d-bin
     '';
   };
+  # CPU watcher. The bao keeps the display GPU.
+  waveBin = pkgs.stdenv.mkDerivation {
+    pname = "dsl-bao-wave";
+    version = "0";
+    dontUnpack = true;
+    dontConfigure = true;
+    buildInputs = [ pkgs.libjpeg ];
+    nativeBuildInputs = [ pkgs.pkg-config ];
+    buildPhase = ''
+      $CC -O2 -std=c11 -Wall -Wextra -o dsl-bao-wave ${./bao-wave.c} \
+        $(pkg-config --cflags --libs libjpeg) -lm
+    '';
+    doCheck = true;
+    checkPhase = "./dsl-bao-wave --check";
+    installPhase = ''
+      mkdir -p $out/bin
+      install -m 755 dsl-bao-wave $out/bin/dsl-bao-wave
+    '';
+  };
   dslBao = pkgs.writeShellScriptBin "dsl-bao-3d" ''
     export DSL_DRM_CARD=/dev/dri/card1
     export LD_LIBRARY_PATH=${lib.makeLibraryPath [ pkgs.alsa-lib ]}
@@ -130,11 +149,17 @@ let
     fi
     exec ${baoBin}/bin/dsl-bao-3d-bin
   '';
-  # One executable path. greetd runs this; the loop keeps
-  # the picture up if dsl-bao-3d exits.
+  # greetd runs this. The picture loop stays up if the bao
+  # exits. The watcher retries the camera on its own.
   baoSession = pkgs.writeShellScript "dsl-bao-3d-session" ''
+    (
+      while true; do
+        ${waveBin}/bin/dsl-bao-wave || true
+        ${pkgs.coreutils}/bin/sleep 2
+      done
+    ) &
     while true; do
-      ${dslBao}/bin/dsl-bao-3d
+      ${dslBao}/bin/dsl-bao-3d || true
       ${pkgs.coreutils}/bin/sleep 1
     done
   '';
@@ -155,7 +180,7 @@ in
     "input"
   ];
 
-  environment.systemPackages = [ dslBao ];
+  environment.systemPackages = [ dslBao waveBin ];
   system.build.dslBao = dslBao;
 
   # default_session.user in the greetd module is mkDefault

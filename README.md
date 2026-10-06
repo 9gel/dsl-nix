@@ -87,9 +87,14 @@ to go back. Import one, not both. The bao chip from
 dimsumlabs-graphics `3D/model_for_dslan.blend` (no cable, no
 socket) paces the corner of a red room and trots on its pins.
 Now and then it stops, turns side-on and tips its top back and
-down to look up. Less often it walks near the corner, faces
-the viewer, raises its rear, leans away and lifts its three
-near hind pins out sideways like a dog (rearmost highest), and
+down to look up. A wave at the webcam stops it, turns it to
+face the camera, then plays that same look, with a yellow
+exclamation beside its head. `dsl-bao-wave` watches the camera
+on the CPU. `DSL_BAO_CAMERA` names the device when it is
+not the first camera node. Less often it walks near the
+corner, faces the viewer, raises its rear, leans away and
+lifts its three near hind pins out sideways like a dog
+(rearmost highest), and
 pees from its rear onto the left wall. The puddle dries in about 30 s. A tap
 on it interrupts whatever it is doing: it jumps, spins, bolts
 and plays the same sounds. The QR code and captions are the same. The build runs
@@ -109,6 +114,15 @@ cc -std=c11 -Wall -Wextra -Werror -DDSL_BAO_HEADLESS \
   -o /tmp/bao-3d-check hosts/greeter/bao-3d.c -lm \
   && /tmp/bao-3d-check --check
 rm /tmp/bao-3d-check
+```
+
+Wave check, no camera:
+
+```sh
+cc -std=c11 -Wall -Wextra -Werror -DDSL_BAO_HEADLESS \
+  -o /tmp/bao-wave-check hosts/greeter/bao-wave.c -lm \
+  && /tmp/bao-wave-check --check
+rm /tmp/bao-wave-check
 ```
 
 Wav and QR writers:
