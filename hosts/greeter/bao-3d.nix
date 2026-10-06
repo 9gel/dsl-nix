@@ -118,17 +118,26 @@ let
       install -m 755 dsl-bao-3d $out/bin/dsl-bao-3d-bin
     '';
   };
+  # MediaPipe palm detector, Apache-2.0, CPU only.
+  palmOnnx = pkgs.fetchurl {
+    url = "https://huggingface.co/opencv/"
+      + "palm_detection_mediapipe/resolve/main/"
+      + "palm_detection_mediapipe_2023feb.onnx";
+    hash = "sha256-eP9Rw4SWt/yLjr22zIwauwL6bDhCfGhIJUzaulf8znw=";
+  };
   # CPU watcher. The bao keeps the display GPU.
   waveBin = pkgs.stdenv.mkDerivation {
     pname = "dsl-bao-wave";
     version = "0";
     dontUnpack = true;
     dontConfigure = true;
-    buildInputs = [ pkgs.libjpeg ];
+    buildInputs = [ pkgs.libjpeg pkgs.onnxruntime ];
     nativeBuildInputs = [ pkgs.pkg-config ];
     buildPhase = ''
       $CC -O2 -std=c11 -Wall -Wextra -o dsl-bao-wave ${./bao-wave.c} \
-        $(pkg-config --cflags --libs libjpeg) -lm
+        -DDSL_BAO_PALM=\"${palmOnnx}\" \
+        -I${lib.getDev pkgs.onnxruntime}/include \
+        $(pkg-config --cflags --libs libjpeg) -lonnxruntime -lm
     '';
     doCheck = true;
     checkPhase = "./dsl-bao-wave --check";
