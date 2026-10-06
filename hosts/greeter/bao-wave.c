@@ -1,15 +1,14 @@
 /* Webcam watcher for the 3D bao.
 
    Reads a USB camera on the CPU, at a small size and 8 fps.
-   A wave is one blob that reverses three times, travels a
-   good part of the frame, and stays on one axis. A person
+   A wave is one blob that reverses twice, travels a good
+   part of the frame, and stays on one axis. A person
    walking past does not reverse. On a wave, sends one
    datagram to /tmp/dsl-bao-wave.sock. dsl-bao-3d owns the
    display and is the only one that binds that socket.
 
-   ponytail: three reversals of one blob. A hand model if
-   a real wave across the room never lands. --check needs
-   no camera.
+   ponytail: two reversals on one axis. A hand model if
+   walk-bys get greeted again. --check needs no camera.
 */
 
 #define _POSIX_C_SOURCE 200809L
@@ -34,12 +33,12 @@
 #endif
 
 #define WAVE_N 8
-#define WAVE_MIN_MASS 0.02f
+#define WAVE_MIN_MASS 0.01f
 #define WAVE_MAX_MASS 0.35f
-#define WAVE_MIN_SPAN 0.22f
-#define WAVE_MIN_STEP 0.06f
-#define WAVE_REVERSALS 3
-#define DIFF_MIN 48
+#define WAVE_MIN_SPAN 0.16f
+#define WAVE_MIN_STEP 0.05f
+#define WAVE_REVERSALS 2
+#define DIFF_MIN 36
 #define WAVE_COOL 80
 
 typedef struct {
@@ -112,7 +111,7 @@ static int wave_push(WaveHist *h, float x, float y, float mass)
             && h->mass[at] <= WAVE_MAX_MASS)
             hot++;
     }
-    if (hot < 6)
+    if (hot < 5)
         return 0;
     {
         float sxn = span_of(xs, WAVE_N);
@@ -157,7 +156,10 @@ static int check(void)
         0.28f, 0.62f, 0.28f, 0.62f, 0.28f, 0.62f, 0.28f, 0.62f};
     static const float flick[] = {
         0.46f, 0.58f, 0.46f, 0.58f, 0.46f, 0.58f, 0.46f, 0.58f};
-    static const float half[] = {
+    /* One swipe turns around once. A hello turns twice. */
+    static const float swipe[] = {
+        0.28f, 0.62f, 0.28f, 0.28f, 0.28f, 0.28f, 0.28f, 0.28f};
+    static const float hello[] = {
         0.28f, 0.62f, 0.28f, 0.62f, 0.62f, 0.62f, 0.62f, 0.62f};
     static const float walk[] = {
         0.10f, 0.20f, 0.30f, 0.40f, 0.50f, 0.60f, 0.70f, 0.80f};
@@ -178,8 +180,10 @@ static int check(void)
         return fail("jitter");
     if (push_all(&h, flick, NULL, 0.05f))
         return fail("flick");
-    if (push_all(&h, half, NULL, 0.05f))
-        return fail("half");
+    if (push_all(&h, swipe, NULL, 0.05f))
+        return fail("swipe");
+    if (!push_all(&h, hello, NULL, 0.05f))
+        return fail("hello");
     if (push_all(&h, wave, NULL, 0.9f))
         return fail("flash");
     if (!push_all(&h, NULL, wave, 0.05f))
