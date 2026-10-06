@@ -887,17 +887,18 @@ static float smooth3(float a, float b, float x)
     return t * t * (3 - 2 * t);
 }
 
-/* Unlit, so it reads on the red room. The bend matches the
-   vertex shader, and the mark sits on the camera's right.
-   Flip it if that side would sink into a wall. */
+/* Yellow !. The rod is wider at the top. The ball sits under
+   it, with a gap. Unlit, on the camera's right of the head.
+   Flip it if that side would sink into a wall. The bend
+   matches the vertex shader. */
 static void draw_mark(
     const Parts *p, const Bao *b, Matrix world, double now)
 {
     float s = (float)b->mark;
-    float dx, dz, len, sx, sz, t, bend, sway, h, r;
-    Vector3 q, at, base, dot;
-    Color ink = {255, 196, 20, 255};
-    Color edge = {48, 0, 8, 255};
+    float dx, dz, len, sx, sz, t, bend, sway;
+    float rod_h, top_r, bot_r, ball_r, gap;
+    Vector3 q, at, ball, rod_bot, rod_top;
+    Color ink = {255, 204, 32, 255};
     if (s < 0.02f)
         return;
     q = p->head;
@@ -920,15 +921,17 @@ static void draw_mark(
         at.x -= 2 * sx;
         at.z -= 2 * sz;
     }
-    h = 9.0f * s;
-    r = 1.05f * s;
-    base = (Vector3){at.x, at.y - h * 0.35f, at.z};
-    dot = (Vector3){at.x, base.y + h + r * 1.8f, at.z};
+    rod_h = 6.4f * s;
+    top_r = 1.25f * s;
+    bot_r = 0.48f * s;
+    ball_r = 1.15f * s;
+    gap = 0.7f * s;
+    ball = (Vector3){at.x, at.y - 1.2f * s, at.z};
+    rod_bot = (Vector3){at.x, ball.y + ball_r + gap, at.z};
+    rod_top = (Vector3){at.x, rod_bot.y + rod_h, at.z};
     rlDisableShader();
-    DrawCylinder(base, r * 1.28f, r * 1.05f, h, 12, edge);
-    DrawCylinder(base, r, r * 0.82f, h, 12, ink);
-    DrawSphere(dot, r * 2.05f, edge);
-    DrawSphere(dot, r * 1.65f, ink);
+    DrawCylinderEx(rod_bot, rod_top, bot_r, top_r, 18, ink);
+    DrawSphere(ball, ball_r, ink);
 }
 
 static void draw_bao(const Parts *p, const Bao *b, double squash,

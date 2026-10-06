@@ -1,13 +1,15 @@
 /* Webcam watcher for the 3D bao.
 
    Reads a USB camera on the CPU, at a small size and 8 fps.
-   A wave is one blob that reverses twice and stays put. A
-   person walking past does not reverse. On a wave, sends one
+   A wave is one blob that reverses three times, travels a
+   good part of the frame, and stays on one axis. A person
+   walking past does not reverse. On a wave, sends one
    datagram to /tmp/dsl-bao-wave.sock. dsl-bao-3d owns the
    display and is the only one that binds that socket.
 
-   ponytail: two reversals of one blob. A hand model if
-   walk-bys get greeted. --check needs no camera.
+   ponytail: three reversals of one blob. A hand model if
+   a real wave across the room never lands. --check needs
+   no camera.
 */
 
 #define _POSIX_C_SOURCE 200809L
@@ -32,12 +34,13 @@
 #endif
 
 #define WAVE_N 8
-#define WAVE_MIN_MASS 0.004f
+#define WAVE_MIN_MASS 0.02f
 #define WAVE_MAX_MASS 0.35f
-#define WAVE_MIN_SPAN 0.10f
-#define WAVE_MIN_STEP 0.035f
-#define WAVE_REVERSALS 2
-#define DIFF_MIN 28
+#define WAVE_MIN_SPAN 0.22f
+#define WAVE_MIN_STEP 0.06f
+#define WAVE_REVERSALS 3
+#define DIFF_MIN 48
+#define WAVE_COOL 80
 
 typedef struct {
     float x[WAVE_N];
@@ -109,13 +112,22 @@ static int wave_push(WaveHist *h, float x, float y, float mass)
             && h->mass[at] <= WAVE_MAX_MASS)
             hot++;
     }
-    if (hot < 5)
+    if (hot < 6)
         return 0;
-    along_x = span_of(xs, WAVE_N) >= span_of(ys, WAVE_N);
-    if (span_of(along_x ? xs : ys, WAVE_N) < WAVE_MIN_SPAN)
-        return 0;
-    if (reversals(along_x ? xs : ys, WAVE_N) < WAVE_REVERSALS)
-        return 0;
+    {
+        float sxn = span_of(xs, WAVE_N);
+        float syn = span_of(ys, WAVE_N);
+        float major, minor;
+        along_x = sxn >= syn;
+        major = along_x ? sxn : syn;
+        minor = along_x ? syn : sxn;
+        /* A wave is one axis. A blob that wanders both ways
+           is someone shifting, not a hand. */
+        if (major < WAVE_MIN_SPAN || minor * 2.0f > major)
+            return 0;
+        if (reversals(along_x ? xs : ys, WAVE_N) < WAVE_REVERSALS)
+            return 0;
+    }
     wave_clear(h);
     return 1;
 }
@@ -142,7 +154,11 @@ static int check(void)
     WaveHist h;
     int i;
     static const float wave[] = {
-        0.40f, 0.58f, 0.40f, 0.58f, 0.40f, 0.58f, 0.40f, 0.58f};
+        0.28f, 0.62f, 0.28f, 0.62f, 0.28f, 0.62f, 0.28f, 0.62f};
+    static const float flick[] = {
+        0.46f, 0.58f, 0.46f, 0.58f, 0.46f, 0.58f, 0.46f, 0.58f};
+    static const float half[] = {
+        0.28f, 0.62f, 0.28f, 0.62f, 0.62f, 0.62f, 0.62f, 0.62f};
     static const float walk[] = {
         0.10f, 0.20f, 0.30f, 0.40f, 0.50f, 0.60f, 0.70f, 0.80f};
     static const float jitter[] = {
@@ -160,6 +176,10 @@ static int check(void)
         return fail("walk");
     if (push_all(&h, jitter, NULL, 0.05f))
         return fail("jitter");
+    if (push_all(&h, flick, NULL, 0.05f))
+        return fail("flick");
+    if (push_all(&h, half, NULL, 0.05f))
+        return fail("half");
     if (push_all(&h, wave, NULL, 0.9f))
         return fail("flash");
     if (!push_all(&h, NULL, wave, 0.05f))
@@ -659,7 +679,7 @@ static int watch(void)
                 cool--;
             else if (wave_push(&hist, x, y, mass)) {
                 wave_send();
-                cool = 48;
+                cool = WAVE_COOL;
             }
         }
         left = 0.125 - (mono() - t0);
