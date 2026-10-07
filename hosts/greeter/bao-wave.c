@@ -178,9 +178,8 @@ static float wave_mass(int moving, float palm)
     return moving ? palm : 0;
 }
 
-/* The webcam's top is the viewer's right. Turn 1 moves
-   that edge to the right of the buffer, so the portrait's
-   up is the top row. Turn 3 is the other quarter turn.
+/* Turn 3 stands the grab up: the webcam's top is the
+   viewer's left. Turn 1 is the other quarter turn.
    dst is h by w. */
 static void rot90(
     const unsigned char *src, int w, int h, int turn,
@@ -1173,7 +1172,7 @@ static void sleep_s(double s)
 static int camera_turn(void)
 {
     const char *v = getenv("DSL_BAO_CAMERA_TURN");
-    int t = 1;
+    int t = 3;
     if (v != NULL && v[0] != '\0')
         t = atoi(v);
     return t == 3 ? 3 : 1;
