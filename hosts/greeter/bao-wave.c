@@ -1,14 +1,16 @@
 /* Webcam watcher for the 3D bao.
 
    Reads a USB camera on the CPU. A palm model finds a hand.
-   A wave is that palm reversing twice on one axis. A still
+   A wave is that palm going across, back, across and back,
+   roughly horizontally. A still
    frame does not count: the palm score is kept only when
    the picture changed. Walking past has no palm, or one
    that only translates. On a wave, sends one datagram to
    /tmp/dsl-bao-wave.sock. The same frames go into shared
    memory so the bao can show the hand. The panel is mounted
    sideways and the camera shares that mount, so each grab
-   is turned upright before the palm model sees it. The
+   is turned upright and mirrored before the palm model
+   sees it. The
    model runs on the CPU. The bao keeps the display GPU.
 
    ponytail: one palm, the highest score, no second-hand
@@ -49,7 +51,7 @@
 #define WAVE_MIN_MASS 0.50f
 #define WAVE_MIN_SPAN 0.16f
 #define WAVE_MIN_STEP 0.05f
-#define WAVE_REVERSALS 2
+#define WAVE_REVERSALS 3
 #define WAVE_COOL 80
 #define PALM_S 192
 #define PALM_N 2016
@@ -97,12 +99,13 @@ static float span_of(const float *v, int n)
 }
 
 /* 1 when this sample completes a wave. The window is one
-   second at 8 fps. A sample with no palm holds the last
+   second at 8 fps. Across, back, across, back is three
+   reversals on x. A sample with no palm holds the last
    position so it cannot fake a reversal. */
 static int wave_push(WaveHist *h, float x, float y, float mass)
 {
     float xs[WAVE_N], ys[WAVE_N];
-    int hot = 0, k, along_x;
+    int hot = 0, k;
     int wild = mass < WAVE_MIN_MASS;
     if (wild && h->n > 0) {
         int last = (h->i + WAVE_N - 1) % WAVE_N;
@@ -129,15 +132,11 @@ static int wave_push(WaveHist *h, float x, float y, float mass)
     {
         float sxn = span_of(xs, WAVE_N);
         float syn = span_of(ys, WAVE_N);
-        float major, minor;
-        along_x = sxn >= syn;
-        major = along_x ? sxn : syn;
-        minor = along_x ? syn : sxn;
-        /* A wave is one axis. A blob that wanders both ways
-           is someone shifting, not a hand. */
-        if (major < WAVE_MIN_SPAN || minor * 2.0f > major)
+        /* Horizontal only. A rise and fall is not a wave,
+           and neither is a hand that wanders both ways. */
+        if (sxn < WAVE_MIN_SPAN || syn * 2.0f > sxn)
             return 0;
-        if (reversals(along_x ? xs : ys, WAVE_N) < WAVE_REVERSALS)
+        if (reversals(xs, WAVE_N) < WAVE_REVERSALS)
             return 0;
     }
     wave_clear(h);
@@ -218,6 +217,27 @@ static void rot90(
             d[0] = s[0];
             d[1] = s[1];
             d[2] = s[2];
+        }
+    }
+}
+
+/* Left-right mirror, so the preview matches a mirror. */
+static void mirror_h(unsigned char *rgb, int w, int h)
+{
+    int y, x;
+    if (w < 2)
+        return;
+    for (y = 0; y < h; y++) {
+        unsigned char *row =
+            rgb + ((size_t)y * (size_t)w) * 3;
+        for (x = 0; x < w / 2; x++) {
+            int r = w - 1 - x;
+            int c;
+            for (c = 0; c < 3; c++) {
+                unsigned char t = row[x * 3 + c];
+                row[x * 3 + c] = row[r * 3 + c];
+                row[r * 3 + c] = t;
+            }
         }
     }
 }
@@ -380,11 +400,14 @@ static int check(void)
         0.28f, 0.62f, 0.28f, 0.62f, 0.28f, 0.62f, 0.28f, 0.62f};
     static const float flick[] = {
         0.46f, 0.58f, 0.46f, 0.58f, 0.46f, 0.58f, 0.46f, 0.58f};
-    /* One swipe turns around once. A hello turns twice. */
+    /* One swipe turns once. Two turns is across, back,
+       forward. A wave needs the last back as well. */
     static const float swipe[] = {
         0.28f, 0.62f, 0.28f, 0.28f, 0.28f, 0.28f, 0.28f, 0.28f};
     static const float hello[] = {
         0.28f, 0.62f, 0.28f, 0.62f, 0.62f, 0.62f, 0.62f, 0.62f};
+    static const float full[] = {
+        0.25f, 0.70f, 0.25f, 0.70f, 0.25f, 0.25f, 0.25f, 0.25f};
     static const float walk[] = {
         0.10f, 0.20f, 0.30f, 0.40f, 0.50f, 0.60f, 0.70f, 0.80f};
     static const float jitter[] = {
@@ -406,11 +429,13 @@ static int check(void)
         return fail("flick");
     if (push_all(&h, swipe, NULL, 0.80f))
         return fail("swipe");
-    if (!push_all(&h, hello, NULL, 0.80f))
+    if (push_all(&h, hello, NULL, 0.80f))
         return fail("hello");
+    if (!push_all(&h, full, NULL, 0.80f))
+        return fail("full");
     if (push_all(&h, wave, NULL, 0))
         return fail("nobody");
-    if (!push_all(&h, NULL, wave, 0.80f))
+    if (push_all(&h, NULL, full, 0.80f))
         return fail("sideways");
     for (i = 0; i < WAVE_N; i++)
         mid[i] = 0.50f;
@@ -515,6 +540,13 @@ static int check(void)
         if (n != FEED_SHOW || linger != 0
             || feed_show(0, &linger))
             return fail("linger");
+    }
+    {
+        unsigned char px[3 * 3] = {
+            1, 0, 0, 2, 0, 0, 3, 0, 0};
+        mirror_h(px, 3, 1);
+        if (px[0] != 3 || px[3] != 2 || px[6] != 1)
+            return fail("mirror");
     }
     printf("ok\n");
     return 0;
@@ -1220,6 +1252,7 @@ static int frame_upright(const Frame *src, Frame *dst, int turn)
     dst->w = src->h;
     dst->h = src->w;
     rot90(src->rgb, src->w, src->h, turn, dst->rgb);
+    mirror_h(dst->rgb, dst->w, dst->h);
     return 1;
 }
 
