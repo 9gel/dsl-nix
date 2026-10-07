@@ -20,7 +20,14 @@ ORT_INC     ?=
 .PHONY: test test-wave test-3d test-py \
 	all bao wave install clean
 
-test: test-wave test-3d test-py
+test: $(BUILD)/bao-wave-test $(BUILD)/bao-3d-test
+	@set -e; \
+	w=$$($(BUILD)/bao-wave-test); \
+	d=$$($(BUILD)/bao-3d-test); \
+	p=$$(PYTHONDONTWRITEBYTECODE=1 $(PYTHON) \
+		test_build_bao.py); \
+	printf '%s\n%s\n%s\n' "$$w" "$$d" "$$p"; \
+	echo "$$(($${w##* } + $${d##* } + $${p##* })) tests"
 
 all: bao wave
 
@@ -75,7 +82,7 @@ test-3d: $(BUILD)/bao-3d-test
 	$(BUILD)/bao-3d-test
 
 test-py:
-	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) test_build_bao.py
+	@PYTHONDONTWRITEBYTECODE=1 $(PYTHON) test_build_bao.py
 
 clean:
 	rm -rf $(BUILD)

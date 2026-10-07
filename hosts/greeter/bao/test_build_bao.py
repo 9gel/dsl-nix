@@ -1,3 +1,4 @@
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,4 +22,13 @@ class BaoTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(
+        BaoTests)
+    result = unittest.TestResult()
+    suite.run(result)
+    bad = result.failures + result.errors
+    if bad:
+        for case, text in bad:
+            sys.stderr.write(f"{case}\n{text}\n")
+        raise SystemExit(1)
+    print(f"build {result.testsRun}")
