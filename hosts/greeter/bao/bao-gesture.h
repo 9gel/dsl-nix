@@ -57,6 +57,8 @@ void rot90(
 void mirror_h(unsigned char *rgb, int w, int h);
 void preview_size(int w, int h, int *pw, int *ph);
 void anchor_at(int i, float *ax, float *ay);
+void palm_geom(
+    int w, int h, float *scale, float *pad_x, float *pad_y);
 int palm_center(
     const float *box, const float *score,
     int w, int h, Palm *o);

@@ -221,7 +221,7 @@ void anchor_at(int i, float *ax, float *ay)
     *ay = ((float)y + 0.5f) / (float)cells;
 }
 
-static void palm_geom(
+void palm_geom(
     int w, int h, float *scale, float *pad_x, float *pad_y)
 {
     float ratio;
