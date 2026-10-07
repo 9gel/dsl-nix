@@ -13,9 +13,11 @@
    sees it. The
    model runs on the CPU. The bao keeps the display GPU.
 
-   ponytail: one palm, the highest score, no second-hand
-   NMS. A face that bobs can still greet. A landmark model
-   if that happens. --check needs no camera and no model.
+   ponytail: follow one palm. A second hand stays in the
+   list and is ignored until the first has been gone for
+   a few frames. Missed frames keep the last box. A face
+   that bobs can still greet. A landmark model if that
+   happens. --check needs no camera and no model.
 */
 
 #define _POSIX_C_SOURCE 200809L
@@ -56,6 +58,15 @@
 #define PALM_S 192
 #define PALM_N 2016
 #define PALM_C 18
+/* Below the wave gate, so a weak frame still draws. */
+#define PALM_TRACK_MIN 0.30f
+#define PALM_RAW 48
+#define PALM_OUT 4
+/* Missed frames to keep the last box. 5 is about 0.6 s. */
+#define PALM_KEEP 5
+/* Same hand if the center moves no farther than this. */
+#define PALM_NEAR 0.20f
+#define PALM_IOU 0.30f
 
 typedef struct {
     float x[WAVE_N];
@@ -316,6 +327,12 @@ typedef struct {
     float x0, y0, x1, y1;
 } Palm;
 
+typedef struct {
+    Palm box;
+    int age;
+    int on;
+} Track;
+
 /* Map one raw box axis back to frame pixels. */
 static float palm_px(
     float raw, float anchor, float scale, float pad)
@@ -324,36 +341,28 @@ static float palm_px(
         - pad * scale / (float)PALM_S;
 }
 
-/* box is PALM_N * PALM_C, x,y,w,h first. score is PALM_N
-   logits. 1 and the frame fraction of the best palm.
-   The box corners are not clamped. x0 < 0 means none. */
-static int palm_center(
-    const float *box, const float *score,
+static float palm_logit(float logit)
+{
+    return 1.0f / (1.0f + expf(-logit));
+}
+
+/* Box corners are not clamped. x0 < 0 can be a real box. */
+static void palm_fill(
+    const float *box, int index, float conf,
     int w, int h, Palm *o)
 {
-    int i, best = 0;
-    float best_logit = score[0];
     float scale, pad_x, pad_y, ax, ay;
     float rx, ry, rw, rh, cx, cy;
-    o->x0 = o->y0 = o->x1 = o->y1 = -1;
-    o->conf = 0;
-    for (i = 1; i < PALM_N; i++) {
-        if (score[i] > best_logit) {
-            best = i;
-            best_logit = score[i];
-        }
-    }
-    o->conf = 1.0f / (1.0f + expf(-best_logit));
-    if (o->conf < WAVE_MIN_MASS)
-        return 0;
-    rx = box[best * PALM_C];
-    ry = box[best * PALM_C + 1];
-    rw = box[best * PALM_C + 2];
-    rh = box[best * PALM_C + 3];
-    anchor_at(best, &ax, &ay);
+    const float *raw = box + index * PALM_C;
+    rx = raw[0];
+    ry = raw[1];
+    rw = raw[2];
+    rh = raw[3];
+    anchor_at(index, &ax, &ay);
     palm_geom(w, h, &scale, &pad_x, &pad_y);
     cx = palm_px(rx, ax, scale, pad_x);
     cy = palm_px(ry, ay, scale, pad_y);
+    o->conf = conf;
     o->x = w > 0 ? cx / (float)w : 0;
     o->y = h > 0 ? cy / (float)h : 0;
     if (o->x < 0)
@@ -376,7 +385,155 @@ static int palm_center(
     o->y1 = h > 0
         ? palm_px(ry + rh * 0.5f, ay, scale, pad_y) / (float)h
         : 0;
+}
+
+/* 1 and the frame fraction of the single best palm.
+   Used by the geometry check. Tracking uses palm_list. */
+static int palm_center(
+    const float *box, const float *score,
+    int w, int h, Palm *o)
+{
+    int i, best = 0;
+    float best_logit = score[0];
+    float conf;
+    o->x0 = o->y0 = o->x1 = o->y1 = -1;
+    o->conf = 0;
+    for (i = 1; i < PALM_N; i++) {
+        if (score[i] > best_logit) {
+            best = i;
+            best_logit = score[i];
+        }
+    }
+    conf = palm_logit(best_logit);
+    if (conf < WAVE_MIN_MASS)
+        return 0;
+    palm_fill(box, best, conf, w, h, o);
     return 1;
+}
+
+static float palm_iou(const Palm *a, const Palm *b)
+{
+    float x0 = a->x0 > b->x0 ? a->x0 : b->x0;
+    float y0 = a->y0 > b->y0 ? a->y0 : b->y0;
+    float x1 = a->x1 < b->x1 ? a->x1 : b->x1;
+    float y1 = a->y1 < b->y1 ? a->y1 : b->y1;
+    float iw = x1 - x0;
+    float ih = y1 - y0;
+    float inter, ua, ub, uni;
+    if (iw <= 0 || ih <= 0)
+        return 0;
+    inter = iw * ih;
+    ua = (a->x1 - a->x0) * (a->y1 - a->y0);
+    ub = (b->x1 - b->x0) * (b->y1 - b->y0);
+    if (ua < 0)
+        ua = 0;
+    if (ub < 0)
+        ub = 0;
+    uni = ua + ub - inter;
+    if (uni <= 0)
+        return 0;
+    return inter / uni;
+}
+
+typedef struct {
+    int i;
+    float conf;
+} PalmHit;
+
+static void hit_put(
+    PalmHit *hit, int *n, int index, float conf)
+{
+    int at;
+    if (*n >= PALM_RAW && conf <= hit[PALM_RAW - 1].conf)
+        return;
+    if (*n < PALM_RAW)
+        at = (*n)++;
+    else
+        at = PALM_RAW - 1;
+    while (at > 0 && conf > hit[at - 1].conf) {
+        hit[at] = hit[at - 1];
+        at--;
+    }
+    hit[at].i = index;
+    hit[at].conf = conf;
+}
+
+/* Palms above PALM_TRACK_MIN, highest first, overlapping
+   boxes of one hand collapsed. out holds at most max. */
+static int palm_list(
+    const float *box, const float *score,
+    int w, int h, Palm *out, int max)
+{
+    PalmHit hit[PALM_RAW];
+    Palm decoded[PALM_RAW];
+    int n = 0, i, kept = 0;
+    if (max > PALM_OUT)
+        max = PALM_OUT;
+    if (max < 1)
+        return 0;
+    for (i = 0; i < PALM_N; i++) {
+        float conf;
+        if (score[i] < -1.0f)
+            continue;
+        conf = palm_logit(score[i]);
+        if (conf < PALM_TRACK_MIN)
+            continue;
+        hit_put(hit, &n, i, conf);
+    }
+    for (i = 0; i < n; i++)
+        palm_fill(
+            box, hit[i].i, hit[i].conf,
+            w, h, &decoded[i]);
+    for (i = 0; i < n && kept < max; i++) {
+        int k, drop = 0;
+        for (k = 0; k < kept; k++) {
+            if (palm_iou(&decoded[i], &out[k]) >= PALM_IOU)
+                drop = 1;
+        }
+        if (!drop)
+            out[kept++] = decoded[i];
+    }
+    return kept;
+}
+
+/* Stay on the hand we have. A miss, or only a far hand,
+   keeps the last box for PALM_KEEP frames, then switches
+   or drops. */
+static void palm_follow(Track *t, const Palm *c, int n)
+{
+    int i, near_i = -1, best = 0;
+    float near_d = PALM_NEAR;
+    for (i = 0; i < n; i++) {
+        float dx, dy, d;
+        if (c[i].conf > c[best].conf)
+            best = i;
+        if (!t->on)
+            continue;
+        dx = c[i].x - t->box.x;
+        dy = c[i].y - t->box.y;
+        d = sqrtf(dx * dx + dy * dy);
+        if (d <= near_d) {
+            near_d = d;
+            near_i = i;
+        }
+    }
+    if (near_i >= 0) {
+        t->box = c[near_i];
+        t->age = 0;
+        t->on = 1;
+        return;
+    }
+    if (t->on && t->age < PALM_KEEP) {
+        t->age++;
+        return;
+    }
+    if (n <= 0) {
+        t->on = 0;
+        return;
+    }
+    t->box = c[best];
+    t->age = 0;
+    t->on = 1;
 }
 
 static int fail(const char *msg)
@@ -407,6 +564,109 @@ static int push_all(
         got = wave_push(h, lx, ly, m);
     }
     return got;
+}
+
+static Palm palm_at(float x, float y, float conf)
+{
+    Palm p;
+    p.x = x;
+    p.y = y;
+    p.conf = conf;
+    p.x0 = x - 0.08f;
+    p.y0 = y - 0.10f;
+    p.x1 = x + 0.08f;
+    p.y1 = y + 0.10f;
+    return p;
+}
+
+/* Two hands must not swap the box. One hand must survive
+   a short gap, then drop if it stays gone. */
+static int check_track(void)
+{
+    Track t;
+    Palm hands[2];
+    Palm back;
+    int i;
+    memset(&t, 0, sizeof t);
+    hands[0] = palm_at(0.20f, 0.50f, 0.80f);
+    hands[1] = palm_at(0.80f, 0.50f, 0.95f);
+    palm_follow(&t, hands, 2);
+    if (!t.on || !near(t.box.x, 0.80f))
+        return fail("lock");
+    hands[0].conf = 0.99f;
+    hands[1].conf = 0.60f;
+    palm_follow(&t, hands, 2);
+    if (!near(t.box.x, 0.80f) || t.age != 0)
+        return fail("stick");
+    hands[1].x = 0.84f;
+    palm_follow(&t, hands, 2);
+    if (!near(t.box.x, 0.84f))
+        return fail("follow");
+    for (i = 0; i < PALM_KEEP; i++) {
+        palm_follow(&t, NULL, 0);
+        if (!t.on || !near(t.box.x, 0.84f))
+            return fail("coast");
+    }
+    palm_follow(&t, NULL, 0);
+    if (t.on)
+        return fail("drop");
+    back = palm_at(0.20f, 0.50f, 0.70f);
+    palm_follow(&t, &back, 1);
+    palm_follow(&t, NULL, 0);
+    palm_follow(&t, NULL, 0);
+    back.x = 0.24f;
+    palm_follow(&t, &back, 1);
+    if (!t.on || !near(t.box.x, 0.24f) || t.age != 0)
+        return fail("return");
+    /* The other hand is visible, but not for long enough
+       to steal the box. */
+    hands[0] = palm_at(0.70f, 0.50f, 0.99f);
+    palm_follow(&t, hands, 1);
+    if (!near(t.box.x, 0.24f) || t.age != 1)
+        return fail("hold");
+    return 0;
+}
+
+static int check_palms(void)
+{
+    static float box[PALM_N * PALM_C];
+    static float score[PALM_N];
+    Palm out[PALM_OUT];
+    int n, i;
+    for (i = 0; i < PALM_N; i++)
+        score[i] = -8;
+    memset(box, 0, sizeof box);
+    if (palm_list(box, score, PALM_S, PALM_S, out, PALM_OUT))
+        return fail("list-empty");
+    score[0] = -0.40f;
+    n = palm_list(box, score, PALM_S, PALM_S, out, PALM_OUT);
+    if (n != 1 || out[0].conf < PALM_TRACK_MIN)
+        return fail("list-weak");
+    if (palm_center(box, score, PALM_S, PALM_S, &out[0]))
+        return fail("weak-wave");
+    score[0] = 4;
+    score[2] = 3;
+    box[2] = 0.80f * (float)PALM_S;
+    box[3] = 0.80f * (float)PALM_S;
+    box[2 * PALM_C + 2] = 0.80f * (float)PALM_S;
+    box[2 * PALM_C + 3] = 0.80f * (float)PALM_S;
+    n = palm_list(box, score, PALM_S, PALM_S, out, PALM_OUT);
+    if (n != 1 || !near(out[0].x, 0.020833f))
+        return fail("list-one");
+    memset(box, 0, sizeof box);
+    score[2] = -8;
+    score[PALM_N - 1] = 3;
+    box[2] = 0.05f * (float)PALM_S;
+    box[3] = 0.05f * (float)PALM_S;
+    box[(PALM_N - 1) * PALM_C + 2] = 0.05f * (float)PALM_S;
+    box[(PALM_N - 1) * PALM_C + 3] = 0.05f * (float)PALM_S;
+    n = palm_list(box, score, PALM_S, PALM_S, out, PALM_OUT);
+    if (n != 2)
+        return fail("list-two");
+    if (!near(out[0].x, 0.020833f)
+        || out[1].x < 0.90f)
+        return fail("list-order");
+    return 0;
 }
 
 static int check(void)
@@ -580,6 +840,8 @@ static int check(void)
         if (px[0] != 3 || px[3] != 2 || px[6] != 1)
             return fail("mirror");
     }
+    if (check_track() || check_palms())
+        return 1;
     printf("ok\n");
     return 0;
 }
@@ -726,10 +988,12 @@ static int palm_open(PalmRt *p, const char *path)
     return 1;
 }
 
-/* conf is the palm score, or 0 when the frame has no palm. */
-static void palm_run(
+/* fresh score of the hand we are following, or 0 when
+   this frame missed and the box is only being held.
+   shown is that box. x0 < 0 means there is nothing to draw. */
+static float palm_watch(
     PalmRt *p, const unsigned char *rgb, int w, int h,
-    Palm *o)
+    Track *t, Palm *shown)
 {
     OrtValue *out[2] = { NULL, NULL };
     const char *const in_name[] = { "input_1" };
@@ -737,30 +1001,41 @@ static void palm_run(
         "Identity", "Identity_1"
     };
     const OrtValue *const in_val[] = { p->input };
+    Palm cand[PALM_OUT];
     float *box = NULL, *score = NULL;
-    o->x = 0;
-    o->y = 0;
-    o->conf = 0;
-    o->x0 = o->y0 = o->x1 = o->y1 = -1;
+    int n = 0;
+    shown->x = 0;
+    shown->y = 0;
+    shown->conf = 0;
+    shown->x0 = shown->y0 = shown->x1 = shown->y1 = -1;
     letterbox(rgb, w, h, p->in);
     if (!ort_ok(p->api, p->api->Run(
             p->ses, NULL, in_name, in_val, 1,
-            out_name, 2, out)))
-        return;
+            out_name, 2, out))) {
+        palm_follow(t, NULL, 0);
+        if (t->on)
+            *shown = t->box;
+        return 0;
+    }
     if (!ort_ok(p->api, p->api->GetTensorMutableData(
             out[0], (void **)&box))
         || !ort_ok(p->api, p->api->GetTensorMutableData(
             out[1], (void **)&score))) {
         p->api->ReleaseValue(out[0]);
         p->api->ReleaseValue(out[1]);
-        return;
+        palm_follow(t, NULL, 0);
+        if (t->on)
+            *shown = t->box;
+        return 0;
     }
-    if (!palm_center(box, score, w, h, o)) {
-        o->conf = 0;
-        o->x0 = o->y0 = o->x1 = o->y1 = -1;
-    }
+    n = palm_list(box, score, w, h, cand, PALM_OUT);
     p->api->ReleaseValue(out[0]);
     p->api->ReleaseValue(out[1]);
+    palm_follow(t, cand, n);
+    if (!t->on)
+        return 0;
+    *shown = t->box;
+    return t->age == 0 ? t->box.conf : 0;
 }
 
 #endif
@@ -1294,6 +1569,7 @@ static int watch(void)
     Frame frame, upright;
     PalmRt palm;
     WaveHist hist;
+    Track track;
     BaoFeed *feed;
     int turn;
     unsigned char *prev = NULL;
@@ -1305,6 +1581,7 @@ static int watch(void)
     memset(&upright, 0, sizeof upright);
     memset(&palm, 0, sizeof palm);
     memset(&hist, 0, sizeof hist);
+    memset(&track, 0, sizeof track);
     cam.fd = -1;
     turn = camera_turn();
     feed = feed_open();
@@ -1326,6 +1603,7 @@ static int watch(void)
             }
             said = 0;
             wave_clear(&hist);
+            track.on = 0;
             prev_n = 0;
         }
         t0 = mono();
@@ -1338,7 +1616,7 @@ static int watch(void)
             Palm seen = {0};
             int n, moving = 0, show;
             unsigned flags = 0;
-            float mass;
+            float mass, fresh = 0;
             if (!frame_upright(&frame, &upright, turn))
                 continue;
             n = upright.w * upright.h * 3;
@@ -1347,10 +1625,12 @@ static int watch(void)
             show = feed_show(moving, &linger);
             seen.x0 = seen.y0 = seen.x1 = seen.y1 = -1;
             if (show)
-                palm_run(
+                fresh = palm_watch(
                     &palm, upright.rgb, upright.w, upright.h,
-                    &seen);
-            mass = wave_mass(moving, seen.conf);
+                    &track, &seen);
+            else
+                track.on = 0;
+            mass = wave_mass(moving, fresh);
             if (cool > 0)
                 cool--;
             else if (wave_push(
@@ -1362,7 +1642,7 @@ static int watch(void)
             }
             if (show)
                 flags |= BAO_FEED_MOVE;
-            if (seen.conf >= WAVE_MIN_MASS) {
+            if (seen.conf >= PALM_TRACK_MIN) {
                 bx0 = seen.x0;
                 by0 = seen.y0;
                 bx1 = seen.x1;
@@ -1424,7 +1704,11 @@ int main(int argc, char **argv)
     fclose(fp);
     if (!palm_open(&palm, argv[1]))
         return fail("open");
-    palm_run(&palm, rgb, w, h, &seen);
+    {
+        Track track;
+        memset(&track, 0, sizeof track);
+        palm_watch(&palm, rgb, w, h, &track, &seen);
+    }
     printf("%.4f %.4f %.4f\n", seen.conf, seen.x, seen.y);
     free(rgb);
     return seen.conf >= WAVE_MIN_MASS ? 0 : 2;
