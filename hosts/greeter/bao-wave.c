@@ -1,11 +1,13 @@
 /* Webcam watcher for the 3D bao.
 
    Reads a USB camera on the CPU. A palm model finds a hand.
-   A wave is that palm reversing twice on one axis. A person
-   walking past has no palm, or a palm that only translates.
-   On a wave, sends one datagram to /tmp/dsl-bao-wave.sock.
-   dsl-bao-3d owns the display and binds that socket. The
-   model runs on the CPU. The bao keeps the display GPU.
+   A wave is that palm reversing twice on one axis. A still
+   frame does not count: the palm score is kept only when
+   the picture changed. Walking past has no palm, or one
+   that only translates. On a wave, sends one datagram to
+   /tmp/dsl-bao-wave.sock. The same frames go into shared
+   memory so the bao can show the hand. The model runs on
+   the CPU. The bao keeps the display GPU.
 
    ponytail: one palm, the highest score, no second-hand
    NMS. A face that bobs can still greet. A landmark model
@@ -19,12 +21,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "bao-feed.h"
+
 #if !defined(DSL_BAO_HEADLESS) && !defined(DSL_BAO_PALM_TEST)
 #include <errno.h>
 #include <fcntl.h>
 #include <jpeglib.h>
 #include <linux/videodev2.h>
 #include <setjmp.h>
+#include <stdatomic.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/select.h>
@@ -137,6 +142,58 @@ static int wave_push(WaveHist *h, float x, float y, float mass)
     return 1;
 }
 
+/* Still frames score as a palm whose box hops between
+   anchors. That hop is enough to fake two reversals.
+   Count a pixel when any channel moves more than this. */
+#define MOVE_DIFF 28
+#define MOVE_SKIP 16
+
+static int frame_moved(
+    const unsigned char *a, const unsigned char *b, int n)
+{
+    int i, seen = 0, hot = 0;
+    if (a == NULL || b == NULL || n < 3)
+        return 0;
+    for (i = 0; i + 2 < n; i += MOVE_SKIP * 3) {
+        int c, hit = 0;
+        for (c = 0; c < 3; c++) {
+            int d = (int)a[i + c] - (int)b[i + c];
+            if (d < 0)
+                d = -d;
+            if (d > MOVE_DIFF)
+                hit = 1;
+        }
+        seen++;
+        hot += hit;
+    }
+    /* ponytail: 8% of samples. Raise it if JPEG flicker
+       keeps the preview up on a still room. */
+    return seen > 0 && hot * 100 >= seen * 8;
+}
+
+static float wave_mass(int moving, float palm)
+{
+    return moving ? palm : 0;
+}
+
+/* Longest edge of the preview is BAO_FEED_W. */
+static void preview_size(int w, int h, int *pw, int *ph)
+{
+    int d = 1;
+    if (w < 1)
+        w = 1;
+    if (h < 1)
+        h = 1;
+    while (w / d > BAO_FEED_W || h / d > BAO_FEED_H)
+        d++;
+    *pw = w / d;
+    *ph = h / d;
+    if (*pw < 1)
+        *pw = 1;
+    if (*ph < 1)
+        *ph = 1;
+}
+
 /* MediaPipe SSD anchors: one 24x24 layer, then three
    12x12 layers. Two anchors share each cell. */
 static void anchor_at(int i, float *ax, float *ay)
@@ -184,40 +241,71 @@ static int near(float a, float b)
     return d < 0.001f;
 }
 
+typedef struct {
+    float x, y, conf;
+    float x0, y0, x1, y1;
+} Palm;
+
+/* Map one raw box axis back to frame pixels. */
+static float palm_px(
+    float raw, float anchor, float scale, float pad)
+{
+    return (raw / (float)PALM_S + anchor) * scale
+        - pad * scale / (float)PALM_S;
+}
+
 /* box is PALM_N * PALM_C, x,y,w,h first. score is PALM_N
-   logits. 1 and the frame fraction of the best palm. */
+   logits. 1 and the frame fraction of the best palm.
+   The box corners are not clamped. x0 < 0 means none. */
 static int palm_center(
     const float *box, const float *score,
-    int w, int h, float *x, float *y, float *conf)
+    int w, int h, Palm *o)
 {
     int i, best = 0;
     float best_logit = score[0];
-    float scale, pad_x, pad_y, dx, dy, ax, ay, cx, cy;
+    float scale, pad_x, pad_y, ax, ay;
+    float rx, ry, rw, rh, cx, cy;
+    o->x0 = o->y0 = o->x1 = o->y1 = -1;
+    o->conf = 0;
     for (i = 1; i < PALM_N; i++) {
         if (score[i] > best_logit) {
             best = i;
             best_logit = score[i];
         }
     }
-    *conf = 1.0f / (1.0f + expf(-best_logit));
-    if (*conf < WAVE_MIN_MASS)
+    o->conf = 1.0f / (1.0f + expf(-best_logit));
+    if (o->conf < WAVE_MIN_MASS)
         return 0;
-    dx = box[best * PALM_C] / (float)PALM_S;
-    dy = box[best * PALM_C + 1] / (float)PALM_S;
+    rx = box[best * PALM_C];
+    ry = box[best * PALM_C + 1];
+    rw = box[best * PALM_C + 2];
+    rh = box[best * PALM_C + 3];
     anchor_at(best, &ax, &ay);
     palm_geom(w, h, &scale, &pad_x, &pad_y);
-    cx = (dx + ax) * scale - pad_x / (PALM_S / scale);
-    cy = (dy + ay) * scale - pad_y / (PALM_S / scale);
-    *x = w > 0 ? cx / (float)w : 0;
-    *y = h > 0 ? cy / (float)h : 0;
-    if (*x < 0)
-        *x = 0;
-    if (*x > 1)
-        *x = 1;
-    if (*y < 0)
-        *y = 0;
-    if (*y > 1)
-        *y = 1;
+    cx = palm_px(rx, ax, scale, pad_x);
+    cy = palm_px(ry, ay, scale, pad_y);
+    o->x = w > 0 ? cx / (float)w : 0;
+    o->y = h > 0 ? cy / (float)h : 0;
+    if (o->x < 0)
+        o->x = 0;
+    if (o->x > 1)
+        o->x = 1;
+    if (o->y < 0)
+        o->y = 0;
+    if (o->y > 1)
+        o->y = 1;
+    o->x0 = w > 0
+        ? palm_px(rx - rw * 0.5f, ax, scale, pad_x) / (float)w
+        : 0;
+    o->y0 = h > 0
+        ? palm_px(ry - rh * 0.5f, ay, scale, pad_y) / (float)h
+        : 0;
+    o->x1 = w > 0
+        ? palm_px(rx + rw * 0.5f, ax, scale, pad_x) / (float)w
+        : 0;
+    o->y1 = h > 0
+        ? palm_px(ry + rh * 0.5f, ay, scale, pad_y) / (float)h
+        : 0;
     return 1;
 }
 
@@ -287,10 +375,40 @@ static int check(void)
         if (wave_push(&h, x, 0.5f, mass))
             return fail("still");
     }
+    if (wave_mass(0, 0.90f) != 0
+        || !near(wave_mass(1, 0.90f), 0.90f))
+        return fail("gate");
+    {
+        unsigned char a[960], b[960];
+        int s;
+        memset(a, 40, sizeof a);
+        memset(b, 40, sizeof b);
+        if (frame_moved(a, b, 960))
+            return fail("stillpix");
+        b[0] = 255;
+        b[1] = 255;
+        b[2] = 255;
+        if (frame_moved(a, b, 960))
+            return fail("speck");
+        for (s = 0; s < 10; s++)
+            b[s * MOVE_SKIP * 3] = 255;
+        if (!frame_moved(a, b, 960))
+            return fail("block");
+    }
+    {
+        int pw, ph;
+        preview_size(320, 240, &pw, &ph);
+        if (pw != 160 || ph != 120)
+            return fail("preview");
+        preview_size(160, 120, &pw, &ph);
+        if (pw != 160 || ph != 120)
+            return fail("preview1");
+    }
     {
         static float box[PALM_N * PALM_C];
         static float score[PALM_N];
-        float x, y, conf, ax, ay;
+        float ax, ay;
+        Palm o;
         int i;
         anchor_at(0, &ax, &ay);
         if (!near(ax, 0.020833f) || !near(ay, 0.020833f))
@@ -307,16 +425,23 @@ static int check(void)
         for (i = 0; i < PALM_N; i++)
             score[i] = -8;
         memset(box, 0, sizeof box);
-        if (palm_center(box, score, PALM_S, PALM_S,
-                &x, &y, &conf))
+        if (palm_center(box, score, PALM_S, PALM_S, &o))
             return fail("empty");
         score[0] = 4;
-        if (!palm_center(box, score, PALM_S, PALM_S,
-                &x, &y, &conf))
+        if (!palm_center(box, score, PALM_S, PALM_S, &o))
             return fail("palm");
-        if (conf < 0.9f || !near(x, 0.020833f)
-            || !near(y, 0.020833f))
+        if (o.conf < 0.9f || !near(o.x, 0.020833f)
+            || !near(o.y, 0.020833f))
             return fail("spot");
+        box[2] = 0.10f * (float)PALM_S;
+        box[3] = 0.20f * (float)PALM_S;
+        if (!palm_center(box, score, PALM_S, PALM_S, &o))
+            return fail("box");
+        if (!near(o.x0, -0.029167f)
+            || !near(o.y0, -0.079167f)
+            || !near(o.x1, 0.070833f)
+            || !near(o.y1, 0.120833f))
+            return fail("box");
     }
     printf("ok\n");
     return 0;
@@ -464,10 +589,10 @@ static int palm_open(PalmRt *p, const char *path)
     return 1;
 }
 
-/* mass is the palm score, or 0 when the frame has no palm. */
+/* conf is the palm score, or 0 when the frame has no palm. */
 static void palm_run(
     PalmRt *p, const unsigned char *rgb, int w, int h,
-    float *x, float *y, float *mass)
+    Palm *o)
 {
     OrtValue *out[2] = { NULL, NULL };
     const char *const in_name[] = { "input_1" };
@@ -476,10 +601,10 @@ static void palm_run(
     };
     const OrtValue *const in_val[] = { p->input };
     float *box = NULL, *score = NULL;
-    float conf = 0;
-    *x = 0;
-    *y = 0;
-    *mass = 0;
+    o->x = 0;
+    o->y = 0;
+    o->conf = 0;
+    o->x0 = o->y0 = o->x1 = o->y1 = -1;
     letterbox(rgb, w, h, p->in);
     if (!ort_ok(p->api, p->api->Run(
             p->ses, NULL, in_name, in_val, 1,
@@ -493,8 +618,10 @@ static void palm_run(
         p->api->ReleaseValue(out[1]);
         return;
     }
-    if (palm_center(box, score, w, h, x, y, &conf))
-        *mass = conf;
+    if (!palm_center(box, score, w, h, o)) {
+        o->conf = 0;
+        o->x0 = o->y0 = o->x1 = o->y1 = -1;
+    }
     p->api->ReleaseValue(out[0]);
     p->api->ReleaseValue(out[1]);
 }
@@ -878,6 +1005,105 @@ static void wave_send(void)
     close(fd);
 }
 
+/* About two seconds at 8 fps, long enough to read "wave". */
+#define FEED_HOLD 16
+
+static void preview_rgb(
+    const unsigned char *src, int w, int h,
+    unsigned char *dst, int pw, int ph)
+{
+    int y, x;
+    for (y = 0; y < ph; y++) {
+        int sy = (y * h) / ph;
+        const unsigned char *row =
+            src + (size_t)sy * (size_t)w * 3;
+        unsigned char *out = dst + (size_t)y * (size_t)pw * 3;
+        for (x = 0; x < pw; x++) {
+            int sx = (x * w) / pw;
+            const unsigned char *s = row + sx * 3;
+            unsigned char *d = out + x * 3;
+            d[0] = s[0];
+            d[1] = s[1];
+            d[2] = s[2];
+        }
+    }
+}
+
+static int keep_prev(
+    unsigned char **prev, int *pn,
+    const unsigned char *rgb, int n)
+{
+    if (*pn != n) {
+        unsigned char *p = malloc((size_t)n);
+        if (p == NULL)
+            return 0;
+        free(*prev);
+        *prev = p;
+        *pn = n;
+    }
+    memcpy(*prev, rgb, (size_t)n);
+    return 1;
+}
+
+static BaoFeed *feed_open(void)
+{
+    int fd = shm_open(
+        BAO_FEED_NAME, O_CREAT | O_RDWR, 0600);
+    BaoFeed *f;
+    if (fd < 0)
+        return NULL;
+    if (ftruncate(fd, (off_t)sizeof(BaoFeed)) < 0) {
+        close(fd);
+        return NULL;
+    }
+    f = mmap(
+        NULL, sizeof(BaoFeed), PROT_READ | PROT_WRITE,
+        MAP_SHARED, fd, 0);
+    close(fd);
+    if (f == MAP_FAILED)
+        return NULL;
+    atomic_store_explicit(
+        (atomic_uint *)&f->seq, 0, memory_order_relaxed);
+    f->flags = 0;
+    f->w = 0;
+    f->h = 0;
+    f->x0 = f->y0 = f->x1 = f->y1 = -1;
+    return f;
+}
+
+static void feed_publish(
+    BaoFeed *f, int w, int h, const unsigned char *rgb,
+    float x0, float y0, float x1, float y1,
+    float score, unsigned flags)
+{
+    atomic_uint *seq;
+    uint32_t s;
+    int pw = 0, ph = 0;
+    static unsigned char pix[BAO_FEED_W * BAO_FEED_H * 3];
+    if (f == NULL)
+        return;
+    seq = (atomic_uint *)&f->seq;
+    s = atomic_load_explicit(seq, memory_order_relaxed);
+    if (s & 1u)
+        s++;
+    atomic_store_explicit(seq, s + 1, memory_order_relaxed);
+    atomic_thread_fence(memory_order_release);
+    if (rgb != NULL && w > 0 && h > 0) {
+        preview_size(w, h, &pw, &ph);
+        preview_rgb(rgb, w, h, pix, pw, ph);
+        f->w = pw;
+        f->h = ph;
+        memcpy(f->rgb, pix, (size_t)pw * (size_t)ph * 3);
+    }
+    f->x0 = x0;
+    f->y0 = y0;
+    f->x1 = x1;
+    f->y1 = y1;
+    f->score = score;
+    f->flags = flags;
+    atomic_store_explicit(seq, s + 2, memory_order_release);
+}
+
 static double mono(void)
 {
     struct timespec t;
@@ -901,17 +1127,23 @@ static int watch(void)
     Frame frame;
     PalmRt palm;
     WaveHist hist;
-    int cool = 0, said = 0;
+    BaoFeed *feed;
+    unsigned char *prev = NULL;
+    int prev_n = 0;
+    int cool = 0, said = 0, hold = 0, have = 0;
+    float bx0 = -1, by0 = -1, bx1 = -1, by1 = -1;
     memset(&cam, 0, sizeof cam);
     memset(&frame, 0, sizeof frame);
     memset(&palm, 0, sizeof palm);
     memset(&hist, 0, sizeof hist);
     cam.fd = -1;
+    feed = feed_open();
+    if (feed == NULL)
+        fprintf(stderr, "dsl-bao-wave: no preview\n");
     if (!palm_open(&palm, DSL_BAO_PALM))
         return fail("no palm model");
     for (;;) {
         double t0, left;
-        float x = 0, y = 0, mass = 0;
         int got;
         if (cam.fd < 0) {
             if (!cam_open(&cam)) {
@@ -924,6 +1156,7 @@ static int watch(void)
             }
             said = 0;
             wave_clear(&hist);
+            prev_n = 0;
         }
         t0 = mono();
         got = cam_grab(&cam, &frame);
@@ -932,16 +1165,55 @@ static int watch(void)
             continue;
         }
         if (got > 0) {
-            palm_run(
-                &palm, frame.rgb, frame.w, frame.h,
-                &x, &y, &mass);
+            Palm seen = {0};
+            int n = frame.w * frame.h * 3;
+            int moving = 0;
+            unsigned flags = 0;
+            float mass;
+            if (prev != NULL && prev_n == n)
+                moving = frame_moved(prev, frame.rgb, n);
+            seen.x0 = seen.y0 = seen.x1 = seen.y1 = -1;
+            if (moving)
+                palm_run(
+                    &palm, frame.rgb, frame.w, frame.h,
+                    &seen);
+            mass = wave_mass(moving, seen.conf);
             if (cool > 0)
                 cool--;
-            else if (wave_push(&hist, x, y, mass)) {
+            else if (wave_push(
+                    &hist, seen.x, seen.y, mass)) {
                 wave_send();
                 fprintf(stderr, "dsl-bao-wave: palm\n");
                 cool = WAVE_COOL;
+                hold = FEED_HOLD;
             }
+            if (moving)
+                flags |= BAO_FEED_MOVE;
+            if (mass >= WAVE_MIN_MASS) {
+                bx0 = seen.x0;
+                by0 = seen.y0;
+                bx1 = seen.x1;
+                by1 = seen.y1;
+                have = 1;
+                flags |= BAO_FEED_PALM;
+            }
+            if (hold > 0) {
+                flags |= BAO_FEED_WAVE;
+                if ((flags & BAO_FEED_PALM) == 0 && have) {
+                    seen.x0 = bx0;
+                    seen.y0 = by0;
+                    seen.x1 = bx1;
+                    seen.y1 = by1;
+                    flags |= BAO_FEED_PALM;
+                }
+                hold--;
+            }
+            feed_publish(
+                feed, frame.w, frame.h,
+                (flags & BAO_FEED_MOVE) ? frame.rgb : NULL,
+                seen.x0, seen.y0, seen.x1, seen.y1,
+                mass, flags);
+            (void)keep_prev(&prev, &prev_n, frame.rgb, n);
         }
         left = 0.125 - (mono() - t0);
         sleep_s(left);
@@ -958,7 +1230,7 @@ int main(int argc, char **argv)
     FILE *fp;
     int w, h;
     long n;
-    float x, y, mass;
+    Palm seen;
     if (check() != 0)
         return 1;
     if (argc != 5)
@@ -979,10 +1251,10 @@ int main(int argc, char **argv)
     fclose(fp);
     if (!palm_open(&palm, argv[1]))
         return fail("open");
-    palm_run(&palm, rgb, w, h, &x, &y, &mass);
-    printf("%.4f %.4f %.4f\n", mass, x, y);
+    palm_run(&palm, rgb, w, h, &seen);
+    printf("%.4f %.4f %.4f\n", seen.conf, seen.x, seen.y);
     free(rgb);
-    return mass >= WAVE_MIN_MASS ? 0 : 2;
+    return seen.conf >= WAVE_MIN_MASS ? 0 : 2;
 }
 #else
 int main(int argc, char **argv)

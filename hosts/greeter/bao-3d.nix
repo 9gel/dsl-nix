@@ -103,6 +103,7 @@ let
     nativeBuildInputs = [ pkgs.pkg-config ];
     buildPhase = ''
       $CC -O2 -std=c11 -Wall -Wextra -o dsl-bao-3d ${./bao-3d.c} \
+        -I${./.} \
         -DDSL_SCREEN_TURN=${toString screenTransform} \
         -DDSL_BAO_MODELS=\"${models}\" \
         -DDSL_BAO_FONT=\"${asapRegular}\" \
@@ -136,6 +137,7 @@ let
     buildPhase = ''
       $CC -O2 -std=c11 -Wall -Wextra -o dsl-bao-wave ${./bao-wave.c} \
         -DDSL_BAO_PALM=\"${palmOnnx}\" \
+        -I${./.} \
         -I${lib.getDev pkgs.onnxruntime}/include \
         $(pkg-config --cflags --libs libjpeg) -lonnxruntime -lm
     '';

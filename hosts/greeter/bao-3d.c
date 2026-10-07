@@ -4,8 +4,9 @@
    red room. A tap on it makes it jump, spin and yell. A wave
    on the webcam makes it face the camera and look up, with an
    exclamation that jumps up beside its head and says "huh?".
-   The screen turn, touch, QR, captions and sounds follow
-   bao.c. --check needs no display.
+   While the camera sees movement, a square preview sits at
+   the top left and draws the palm. The Telegram lines sit
+   above the QR. --check needs no display.
 */
 
 #include <math.h>
@@ -18,9 +19,13 @@
 #include "raymath.h"
 #include "rlgl.h"
 #include <fcntl.h>
+#include <stdatomic.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include "bao-feed.h"
 #endif
 
 #ifndef DSL_SCREEN_TURN
@@ -400,6 +405,53 @@ static void mark_pose(float t, float *sx, float *sy, float *hop)
     *hop = 0;
 }
 
+typedef struct {
+    float margin, side;
+    float vx, vy;
+    float tx, ty;
+    float qx, qy;
+} Hud;
+
+/* Video square at the top left. QR under the caption,
+   top right. text_h is the measured caption block. */
+static Hud hud_place(int lw, int lh, float text_h)
+{
+    Hud h;
+    float gap;
+    h.margin = fmaxf(16.0f, (float)lh * 0.02f);
+    h.side = (float)lh * 0.2f;
+    gap = fmaxf(8.0f, h.margin * 0.5f);
+    h.vx = h.margin;
+    h.vy = h.margin;
+    h.qx = (float)lw - h.margin - h.side;
+    h.tx = h.qx + h.side;
+    h.ty = h.margin;
+    h.qy = h.margin + text_h + gap;
+    return h;
+}
+
+/* Letterbox a frame into the square. The hand box uses
+   the same square, in frame fractions. */
+static void feed_box(
+    float side, int fw, int fh,
+    float x0, float y0, float x1, float y1,
+    float *ix, float *iy, float *iw, float *ih,
+    float *bx, float *by, float *bw, float *bh)
+{
+    float m = (float)(fw > fh ? fw : fh);
+    float s = m > 0 ? side / m : 0;
+    float dw = (float)fw * s;
+    float dh = (float)fh * s;
+    *ix = (side - dw) * 0.5f;
+    *iy = (side - dh) * 0.5f;
+    *iw = dw;
+    *ih = dh;
+    *bx = *ix + x0 * dw;
+    *by = *iy + y0 * dh;
+    *bw = (x1 - x0) * dw;
+    *bh = (y1 - y0) * dh;
+}
+
 static int check(void)
 {
     Bao b = bao_at(30, 30, 0);
@@ -634,6 +686,29 @@ static int check(void)
     }
     if (norm_turn(0) != 1 || norm_turn(3) != 3)
         return fail("turn");
+    {
+        Hud h = hud_place(1440, 2560, 80);
+        float margin = fmaxf(16.0f, 2560 * 0.02f);
+        float ix, iy, iw, ih, bx, by, bw, bh;
+        if (fabsf(h.vx - margin) > 0.01f
+            || fabsf(h.vy - margin) > 0.01f)
+            return fail("video");
+        if (fabsf(h.side - 2560 * 0.2f) > 0.01f)
+            return fail("square");
+        if (!(h.qy > h.ty + 80) || !(h.qx > 720))
+            return fail("qr");
+        feed_box(
+            200, 160, 120, 0.25f, 0.25f, 0.75f, 0.75f,
+            &ix, &iy, &iw, &ih, &bx, &by, &bw, &bh);
+        if (fabsf(ix) > 0.01f || fabsf(iy - 25) > 0.01f)
+            return fail("bars");
+        if (fabsf(iw - 200) > 0.01f || fabsf(ih - 150) > 0.01f)
+            return fail("fit");
+        if (fabsf(bx - 50) > 0.01f || fabsf(by - 62.5f) > 0.01f)
+            return fail("hand");
+        if (fabsf(bw - 100) > 0.01f || fabsf(bh - 75) > 0.01f)
+            return fail("hand");
+    }
     printf("ok\n");
     return 0;
 }
@@ -642,7 +717,6 @@ static int check(void)
 
 static const float ROOM = 400;
 static const float WALL_H = 90;
-static const float QR_FRACTION = 0.2f;
 static const char *sound_names[] = {
     "boing",
     "ouch",
@@ -652,7 +726,7 @@ static const char *sound_names[] = {
 static const int sound_n = 4;
 static const char *caption_lines[] = {
     "Join us on Telegram!",
-    "Scan the code on the right.",
+    "Scan this QR code",
 };
 static const char FOOTER[] = "Don't touch the bao!";
 static const Color INK = {255, 248, 244, 255};
@@ -814,31 +888,204 @@ static float fit_footer(Font font, float target_w, float max_h)
     }
 }
 
+static BaoFeed *feed_map(void)
+{
+    struct stat st;
+    int fd = shm_open(BAO_FEED_NAME, O_RDONLY, 0);
+    void *p;
+    if (fd < 0)
+        return NULL;
+    if (fstat(fd, &st) < 0
+        || st.st_size < (off_t)sizeof(BaoFeed)) {
+        close(fd);
+        return NULL;
+    }
+    p = mmap(
+        NULL, sizeof(BaoFeed), PROT_READ, MAP_SHARED, fd, 0);
+    close(fd);
+    if (p == MAP_FAILED)
+        return NULL;
+    return p;
+}
+
+static int feed_load(BaoFeed *src, BaoFeed *dst, uint32_t *seq)
+{
+    int i;
+    for (i = 0; i < 8; i++) {
+        uint32_t a, b;
+        a = atomic_load_explicit(
+            (atomic_uint *)&src->seq, memory_order_acquire);
+        if (a & 1u)
+            continue;
+        memcpy(dst, src, sizeof *dst);
+        atomic_thread_fence(memory_order_acquire);
+        b = atomic_load_explicit(
+            (atomic_uint *)&src->seq, memory_order_acquire);
+        if (a == b) {
+            *seq = a;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Last good preview. Flags drop if the watcher goes quiet. */
+static BaoFeed *live_feed(void)
+{
+    static BaoFeed view;
+    static BaoFeed *shm;
+    static uint32_t last;
+    static int stale, tick;
+    uint32_t seq = 0;
+    tick++;
+    if (shm == NULL) {
+        if (tick % 60 != 0)
+            return &view;
+        shm = feed_map();
+        if (shm == NULL)
+            return &view;
+    }
+    if (!feed_load(shm, &view, &seq)) {
+        if (++stale > 45)
+            view.flags = 0;
+        return &view;
+    }
+    if (seq == last) {
+        if (++stale > 45)
+            view.flags = 0;
+    } else {
+        last = seq;
+        stale = 0;
+    }
+    return &view;
+}
+
+static Texture2D feed_tex(const BaoFeed *v)
+{
+    static Texture2D tex;
+    static int tw, th;
+    static unsigned char rgba[BAO_FEED_W * BAO_FEED_H * 4];
+    int i, n;
+    if (tex.id == 0 || tw != v->w || th != v->h) {
+        Image im;
+        if (tex.id != 0)
+            UnloadTexture(tex);
+        im = GenImageColor(v->w, v->h, BLACK);
+        tex = LoadTextureFromImage(im);
+        UnloadImage(im);
+        if (tex.id != 0)
+            SetTextureFilter(tex, TEXTURE_FILTER_BILINEAR);
+        tw = v->w;
+        th = v->h;
+    }
+    if (tex.id == 0)
+        return tex;
+    n = v->w * v->h;
+    for (i = 0; i < n; i++) {
+        rgba[i * 4] = v->rgb[i * 3];
+        rgba[i * 4 + 1] = v->rgb[i * 3 + 1];
+        rgba[i * 4 + 2] = v->rgb[i * 3 + 2];
+        rgba[i * 4 + 3] = 255;
+    }
+    UpdateTexture(tex, rgba);
+    return tex;
+}
+
+static void draw_feed(Font font, Hud hud, const BaoFeed *v)
+{
+    float ix, iy, iw, ih, bx, by, bw, bh;
+    unsigned show;
+    int wave;
+    const char *word;
+    float sz;
+    Color ink;
+    if (v == NULL)
+        return;
+    show = v->flags & (BAO_FEED_MOVE | BAO_FEED_WAVE);
+    if (show == 0)
+        return;
+    if (v->w < 1 || v->h < 1
+        || v->w > BAO_FEED_W || v->h > BAO_FEED_H)
+        return;
+    DrawRectangle(
+        (int)hud.vx, (int)hud.vy,
+        (int)hud.side, (int)hud.side, BLACK);
+    feed_box(
+        hud.side, v->w, v->h,
+        v->x0, v->y0, v->x1, v->y1,
+        &ix, &iy, &iw, &ih, &bx, &by, &bw, &bh);
+    {
+        Texture2D tex = feed_tex(v);
+        if (tex.id != 0)
+            DrawTexturePro(
+                tex,
+                (Rectangle){0, 0, (float)v->w, (float)v->h},
+                (Rectangle){hud.vx + ix, hud.vy + iy, iw, ih},
+                (Vector2){0, 0}, 0, WHITE);
+    }
+    wave = (v->flags & BAO_FEED_WAVE) != 0;
+    ink = wave ? (Color){255, 204, 32, 255} : WHITE;
+    if ((v->flags & BAO_FEED_PALM) != 0) {
+        float x1 = bx + bw;
+        float y1 = by + bh;
+        if (bx < 0)
+            bx = 0;
+        if (by < 0)
+            by = 0;
+        if (x1 > hud.side)
+            x1 = hud.side;
+        if (y1 > hud.side)
+            y1 = hud.side;
+        if (x1 - bx > 2 && y1 - by > 2)
+            DrawRectangleLinesEx(
+                (Rectangle){
+                    hud.vx + bx, hud.vy + by,
+                    x1 - bx, y1 - by},
+                fmaxf(3, hud.side / 64), ink);
+    }
+    if ((v->flags & (BAO_FEED_PALM | BAO_FEED_WAVE)) == 0)
+        return;
+    word = wave ? "wave" : "hand";
+    sz = fmaxf(18, hud.side * 0.08f);
+    {
+        Vector2 m = MeasureTextEx(font, word, sz, sz / 10);
+        DrawTextEx(
+            font, word,
+            (Vector2){hud.vx + 8, hud.vy + hud.side - m.y - 8},
+            sz, sz / 10, ink);
+    }
+}
+
 static void draw_overlay(
     Font font, Texture2D qr, float cap, float foot, int lw, int lh)
 {
-    int margin = (int)fmax(16, lh * 0.02);
-    int side = (int)(lh * QR_FRACTION);
-    float qx = (float)(lw - margin - side);
-    Vector2 a = MeasureTextEx(font, caption_lines[0], cap, cap / 10);
-    Vector2 b = MeasureTextEx(font, caption_lines[1], cap, cap / 10);
+    Vector2 a = MeasureTextEx(
+        font, caption_lines[0], cap, cap / 10);
+    Vector2 b = MeasureTextEx(
+        font, caption_lines[1], cap, cap / 10);
     Vector2 f = MeasureTextEx(font, FOOTER, foot, foot / 10);
-    float gap = fmaxf(4, a.y / 8);
-    float y = margin + (side - (a.y + gap + b.y)) / 2;
+    float lead = fmaxf(4, a.y / 8);
+    float block = a.y + lead + b.y;
+    Hud hud = hud_place(lw, lh, block);
+    int margin = (int)hud.margin;
     DrawTexturePro(
         qr, (Rectangle){0, 0, (float)qr.width, (float)qr.height},
-        (Rectangle){qx, (float)margin, (float)side, (float)side},
+        (Rectangle){hud.qx, hud.qy, hud.side, hud.side},
         (Vector2){0, 0}, 0, WHITE);
     DrawTextEx(
-        font, caption_lines[0], (Vector2){(float)margin, y},
+        font, caption_lines[0],
+        (Vector2){hud.tx - a.x, hud.ty},
         cap, cap / 10, INK);
     DrawTextEx(
-        font, caption_lines[1], (Vector2){(float)margin, y + a.y + gap},
+        font, caption_lines[1],
+        (Vector2){hud.tx - b.x, hud.ty + a.y + lead},
         cap, cap / 10, INK);
     DrawTextEx(
         font, FOOTER,
-        (Vector2){lw - margin - f.x, lh - margin - f.y},
+        (Vector2){(float)(lw - margin) - f.x,
+            (float)(lh - margin) - f.y},
         foot, foot / 10, INK);
+    draw_feed(font, hud, live_feed());
 }
 
 static int load_sounds(const char *dir, Sound *out)
@@ -1311,9 +1558,13 @@ static int run(void)
     }
     sound_count = load_sounds(sound_dir, sounds);
     huh = load_wav(sound_dir, "huh");
-    cap = fit_caption(
-        font, lw - lh * QR_FRACTION - 3 * fmaxf(16, lh * 0.02f),
-        lh * QR_FRACTION);
+    {
+        Hud slot = hud_place(lw, lh, 0);
+        float gutter = fmaxf(8, slot.margin * 0.5f);
+        float max_w =
+            slot.tx - (slot.vx + slot.side) - gutter;
+        cap = fit_caption(font, max_w, slot.side * 0.36f);
+    }
     foot = fit_footer(font, lw / 2.0f, lh / 8.0f);
 
     /* ponytail: framing is by eye for a 9:16 portrait. */
