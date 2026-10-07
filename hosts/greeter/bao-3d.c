@@ -4,9 +4,9 @@
    red room. A tap on it makes it jump, spin and yell. A wave
    on the webcam makes it face the camera and look up, with an
    exclamation that jumps up beside its head and says "huh?".
-   While the camera sees movement, a square preview sits at
-   the top left and draws the palm. The Telegram lines sit
-   above the QR. --check needs no display.
+   While the camera sees movement, a preview of the same
+   shape sits at the top left and draws the palm. The
+   Telegram lines sit above the QR. --check needs no display.
 */
 
 #include <math.h>
@@ -407,13 +407,12 @@ static void mark_pose(float t, float *sx, float *sy, float *hop)
 
 typedef struct {
     float margin, side;
-    float vx, vy;
     float tx, ty;
     float qx, qy;
 } Hud;
 
-/* Video square at the top left. QR under the caption,
-   top right. text_h is the measured caption block. */
+/* QR under the caption, top right. text_h is the
+   measured caption block. */
 static Hud hud_place(int lw, int lh, float text_h)
 {
     Hud h;
@@ -421,8 +420,6 @@ static Hud hud_place(int lw, int lh, float text_h)
     h.margin = fmaxf(16.0f, (float)lh * 0.02f);
     h.side = (float)lh * 0.2f;
     gap = fmaxf(8.0f, h.margin * 0.5f);
-    h.vx = h.margin;
-    h.vy = h.margin;
     h.qx = (float)lw - h.margin - h.side;
     h.tx = h.qx + h.side;
     h.ty = h.margin;
@@ -430,26 +427,33 @@ static Hud hud_place(int lw, int lh, float text_h)
     return h;
 }
 
-/* Letterbox a frame into the square. The hand box uses
-   the same square, in frame fractions. */
+/* Preview top is 10px down. Its bottom meets the QR
+   bottom, and its width follows the camera. */
+static void feed_place(
+    float qr_bottom, int fw, int fh,
+    float *x, float *y, float *w, float *h)
+{
+    float aspect = 1;
+    *x = 10;
+    *y = 10;
+    *h = qr_bottom - 10;
+    if (*h < 1)
+        *h = 1;
+    if (fw > 0 && fh > 0)
+        aspect = (float)fw / (float)fh;
+    *w = *h * aspect;
+}
+
+/* Hand box in frame fractions, on a panel of that aspect. */
 static void feed_box(
-    float side, int fw, int fh,
+    float pw, float ph,
     float x0, float y0, float x1, float y1,
-    float *ix, float *iy, float *iw, float *ih,
     float *bx, float *by, float *bw, float *bh)
 {
-    float m = (float)(fw > fh ? fw : fh);
-    float s = m > 0 ? side / m : 0;
-    float dw = (float)fw * s;
-    float dh = (float)fh * s;
-    *ix = (side - dw) * 0.5f;
-    *iy = (side - dh) * 0.5f;
-    *iw = dw;
-    *ih = dh;
-    *bx = *ix + x0 * dw;
-    *by = *iy + y0 * dh;
-    *bw = (x1 - x0) * dw;
-    *bh = (y1 - y0) * dh;
+    *bx = x0 * pw;
+    *by = y0 * ph;
+    *bw = (x1 - x0) * pw;
+    *bh = (y1 - y0) * ph;
 }
 
 static int check(void)
@@ -688,25 +692,25 @@ static int check(void)
         return fail("turn");
     {
         Hud h = hud_place(1440, 2560, 80);
-        float margin = fmaxf(16.0f, 2560 * 0.02f);
-        float ix, iy, iw, ih, bx, by, bw, bh;
-        if (fabsf(h.vx - margin) > 0.01f
-            || fabsf(h.vy - margin) > 0.01f)
-            return fail("video");
+        float bottom = h.qy + h.side;
+        float x, y, w, hgt, bx, by, bw, bh;
         if (fabsf(h.side - 2560 * 0.2f) > 0.01f)
-            return fail("square");
+            return fail("qr size");
         if (!(h.qy > h.ty + 80) || !(h.qx > 720))
             return fail("qr");
-        feed_box(
-            200, 160, 120, 0.25f, 0.25f, 0.75f, 0.75f,
-            &ix, &iy, &iw, &ih, &bx, &by, &bw, &bh);
-        if (fabsf(ix) > 0.01f || fabsf(iy - 25) > 0.01f)
-            return fail("bars");
-        if (fabsf(iw - 200) > 0.01f || fabsf(ih - 150) > 0.01f)
-            return fail("fit");
-        if (fabsf(bx - 50) > 0.01f || fabsf(by - 62.5f) > 0.01f)
-            return fail("hand");
-        if (fabsf(bw - 100) > 0.01f || fabsf(bh - 75) > 0.01f)
+        feed_place(bottom, 240, 320, &x, &y, &w, &hgt);
+        if (fabsf(y - 10) > 0.01f || fabsf(x - 10) > 0.01f)
+            return fail("video top");
+        if (fabsf((y + hgt) - bottom) > 0.01f)
+            return fail("video bottom");
+        if (fabsf(w / hgt - 0.75f) > 0.001f)
+            return fail("aspect");
+        feed_box(w, hgt, 0.25f, 0.25f, 0.75f, 0.75f,
+            &bx, &by, &bw, &bh);
+        if (fabsf(bx - 0.25f * w) > 0.01f
+            || fabsf(by - 0.25f * hgt) > 0.01f
+            || fabsf(bw - 0.5f * w) > 0.01f
+            || fabsf(bh - 0.5f * hgt) > 0.01f)
             return fail("hand");
     }
     printf("ok\n");
@@ -993,7 +997,7 @@ static Texture2D feed_tex(const BaoFeed *v)
 
 static void draw_feed(Font font, Hud hud, const BaoFeed *v)
 {
-    float ix, iy, iw, ih, bx, by, bw, bh;
+    float x, y, w, h, bx, by, bw, bh;
     unsigned show;
     int wave;
     const char *word;
@@ -1007,20 +1011,19 @@ static void draw_feed(Font font, Hud hud, const BaoFeed *v)
     if (v->w < 1 || v->h < 1
         || v->w > BAO_FEED_W || v->h > BAO_FEED_H)
         return;
-    DrawRectangle(
-        (int)hud.vx, (int)hud.vy,
-        (int)hud.side, (int)hud.side, BLACK);
+    feed_place(
+        hud.qy + hud.side, v->w, v->h, &x, &y, &w, &h);
+    DrawRectangle((int)x, (int)y, (int)w, (int)h, BLACK);
     feed_box(
-        hud.side, v->w, v->h,
-        v->x0, v->y0, v->x1, v->y1,
-        &ix, &iy, &iw, &ih, &bx, &by, &bw, &bh);
+        w, h, v->x0, v->y0, v->x1, v->y1,
+        &bx, &by, &bw, &bh);
     {
         Texture2D tex = feed_tex(v);
         if (tex.id != 0)
             DrawTexturePro(
                 tex,
                 (Rectangle){0, 0, (float)v->w, (float)v->h},
-                (Rectangle){hud.vx + ix, hud.vy + iy, iw, ih},
+                (Rectangle){x, y, w, h},
                 (Vector2){0, 0}, 0, WHITE);
     }
     wave = (v->flags & BAO_FEED_WAVE) != 0;
@@ -1032,26 +1035,24 @@ static void draw_feed(Font font, Hud hud, const BaoFeed *v)
             bx = 0;
         if (by < 0)
             by = 0;
-        if (x1 > hud.side)
-            x1 = hud.side;
-        if (y1 > hud.side)
-            y1 = hud.side;
+        if (x1 > w)
+            x1 = w;
+        if (y1 > h)
+            y1 = h;
         if (x1 - bx > 2 && y1 - by > 2)
             DrawRectangleLinesEx(
-                (Rectangle){
-                    hud.vx + bx, hud.vy + by,
-                    x1 - bx, y1 - by},
-                fmaxf(3, hud.side / 64), ink);
+                (Rectangle){x + bx, y + by, x1 - bx, y1 - by},
+                fmaxf(3, h / 64), ink);
     }
     if ((v->flags & (BAO_FEED_PALM | BAO_FEED_WAVE)) == 0)
         return;
     word = wave ? "wave" : "hand";
-    sz = fmaxf(18, hud.side * 0.08f);
+    sz = fmaxf(18, h * 0.08f);
     {
         Vector2 m = MeasureTextEx(font, word, sz, sz / 10);
         DrawTextEx(
             font, word,
-            (Vector2){hud.vx + 8, hud.vy + hud.side - m.y - 8},
+            (Vector2){x + 8, y + h - m.y - 8},
             sz, sz / 10, ink);
     }
 }
@@ -1559,11 +1560,17 @@ static int run(void)
     sound_count = load_sounds(sound_dir, sounds);
     huh = load_wav(sound_dir, "huh");
     {
+        float max_text, gutter, x, y, vw, vh, max_w;
         Hud slot = hud_place(lw, lh, 0);
-        float gutter = fmaxf(8, slot.margin * 0.5f);
-        float max_w =
-            slot.tx - (slot.vx + slot.side) - gutter;
-        cap = fit_caption(font, max_w, slot.side * 0.36f);
+        max_text = slot.side * 0.36f;
+        slot = hud_place(lw, lh, max_text);
+        gutter = fmaxf(8, slot.margin * 0.5f);
+        feed_place(
+            slot.qy + slot.side, 3, 4, &x, &y, &vw, &vh);
+        max_w = slot.tx - (x + vw) - gutter;
+        if (max_w < 40)
+            max_w = 40;
+        cap = fit_caption(font, max_w, max_text);
     }
     foot = fit_footer(font, lw / 2.0f, lh / 8.0f);
 

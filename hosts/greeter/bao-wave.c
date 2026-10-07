@@ -178,6 +178,21 @@ static float wave_mass(int moving, float palm)
     return moving ? palm : 0;
 }
 
+/* Frames to keep the picture up after the last motion.
+   64 is about eight seconds at 8 fps. */
+#define FEED_SHOW 64
+
+static int feed_show(int moving, int *linger)
+{
+    if (moving)
+        *linger = FEED_SHOW;
+    if (*linger <= 0)
+        return 0;
+    if (!moving)
+        (*linger)--;
+    return 1;
+}
+
 /* Turn 3 stands the grab up: the webcam's top is the
    viewer's left. Turn 1 is the other quarter turn.
    dst is h by w. */
@@ -490,6 +505,16 @@ static int check(void)
         if (dst[0] != 2 || dst[3] != 4 || dst[6] != 6
             || dst[9] != 1 || dst[12] != 3 || dst[15] != 5)
             return fail("rot270");
+    }
+    {
+        int linger = 0, i, n = 0;
+        if (!feed_show(1, &linger) || linger != FEED_SHOW)
+            return fail("show");
+        for (i = 0; i < FEED_SHOW; i++)
+            n += feed_show(0, &linger);
+        if (n != FEED_SHOW || linger != 0
+            || feed_show(0, &linger))
+            return fail("linger");
     }
     printf("ok\n");
     return 0;
@@ -1208,7 +1233,7 @@ static int watch(void)
     int turn;
     unsigned char *prev = NULL;
     int prev_n = 0;
-    int cool = 0, said = 0, hold = 0, have = 0;
+    int cool = 0, said = 0, hold = 0, have = 0, linger = 0;
     float bx0 = -1, by0 = -1, bx1 = -1, by1 = -1;
     memset(&cam, 0, sizeof cam);
     memset(&frame, 0, sizeof frame);
@@ -1246,7 +1271,7 @@ static int watch(void)
         }
         if (got > 0) {
             Palm seen = {0};
-            int n, moving = 0;
+            int n, moving = 0, show;
             unsigned flags = 0;
             float mass;
             if (!frame_upright(&frame, &upright, turn))
@@ -1254,8 +1279,9 @@ static int watch(void)
             n = upright.w * upright.h * 3;
             if (prev != NULL && prev_n == n)
                 moving = frame_moved(prev, upright.rgb, n);
+            show = feed_show(moving, &linger);
             seen.x0 = seen.y0 = seen.x1 = seen.y1 = -1;
-            if (moving)
+            if (show)
                 palm_run(
                     &palm, upright.rgb, upright.w, upright.h,
                     &seen);
@@ -1269,9 +1295,9 @@ static int watch(void)
                 cool = WAVE_COOL;
                 hold = FEED_HOLD;
             }
-            if (moving)
+            if (show)
                 flags |= BAO_FEED_MOVE;
-            if (mass >= WAVE_MIN_MASS) {
+            if (seen.conf >= WAVE_MIN_MASS) {
                 bx0 = seen.x0;
                 by0 = seen.y0;
                 bx1 = seen.x1;
