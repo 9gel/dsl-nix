@@ -1,7 +1,5 @@
-# 3D touch kiosk: the bao chip from model_for_dslan.blend paces
+# Touch kiosk: the bao chip from model_for_dslan.blend paces
 # a red room corner. bao-3d-export.py makes the .glb files.
-# Same panel, touch, QR and sounds as bao.nix. Import one of
-# the two, not both.
 #
 # HDMI-A-1 is a 2560x1440 panel mounted sideways:
 # an unrotated console has its top on the physical right.
@@ -52,13 +50,13 @@ let
     espeak-ng -w "$out/stop-it.wav" \
       -s 160 -p 75 "Stop it!"
     espeak-ng -w "$out/huh.wav" -v en+f3 -s 155 -p 90 "huh?"
-    python3 ${./bao.py} --write-boing "$out/boing.wav"
+    python3 ${./build_bao.py} --write-boing "$out/boing.wav"
   '';
   qrPng = pkgs.runCommand "dsl-bao-qr.png" {
     nativeBuildInputs = [ pythonEnv ];
   } ''
     export SDL_VIDEODRIVER=dummy
-    python3 ${./bao.py} --write-qr "$out"
+    python3 ${./build_bao.py} --write-qr "$out"
   '';
   # Desktop raylib is GLFW. This one is the Pi's display:
   # kernel DRM, EGL, OpenGL ES 2. DSL_DRM_CARD picks card1.

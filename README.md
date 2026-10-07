@@ -53,19 +53,29 @@ the same zsh, powerlevel10k, and Byobu as jukebox. No Spotify.
 
 HDMI-A-1 is a sideways 2560x1440 touch panel (WDT AC270).
 An unrotated console has its top on the physical right.
-greetd starts `dsl-bao` on tty1. That program is the DRM
+greetd starts `dsl-bao-3d` on tty1. That program is the DRM
 client of `/dev/dri/card1` and draws with OpenGL ES 2.
-`screenTransform` in `hosts/greeter/bao/bao.nix` is `1`: the
-portrait scene is turned onto the landscape mode, and touch
-uses the inverse. Use `3` if the picture is still sideways.
-The screen is the Dim Sum Labs bao
-(`hosts/greeter/bao/dsl-logo-bao.svg`, from
-dimsumlabs/dimsumlabs-graphics). It drifts, and a tap makes
-it jump. Top right is a QR code for `https://t.me/dimsumlabs`,
-about a fifth of the screen height. Left of it, in Asap
-Regular: "Joins us on Telegram! Scan the code on the right."
-A tap on the bao plays boing, ouch, "don't touch me!", or
-"Stop it!" at random. Bottom right, half the screen width:
+`screenTransform` in `hosts/greeter/bao/bao-3d.nix` is `1`:
+the portrait scene is turned onto the landscape mode, and
+touch uses the inverse. Use `3` if the picture is still
+sideways. The bao chip from dimsumlabs-graphics
+`3D/model_for_dslan.blend` (no cable, no socket) paces the
+corner of a red room and trots on its pins. Now and then it
+stops, turns side-on and tips its top back and down to look
+up. A wave at the webcam stops it, turns it to face the
+camera, then plays that same look, with a yellow exclamation
+beside its head. `dsl-bao-wave` watches the camera on the CPU.
+`DSL_BAO_CAMERA` names the device when it is not the first
+camera node. Less often it walks near the corner, faces the
+viewer, raises its rear, leans away and lifts its three near
+hind pins out sideways like a dog (rearmost highest), and
+pees from its rear onto the left wall. The puddle dries in
+about 30 s. A tap interrupts whatever it is doing: it jumps,
+spins, bolts and plays boing, ouch, "don't touch me!", or
+"Stop it!" at random. Top right is a QR code for
+`https://t.me/dimsumlabs`, about a fifth of the screen height.
+Left of it, in Asap Regular: "Joins us on Telegram! Scan the
+code on the right." Bottom right, half the screen width:
 "Don't touch the bao!" greetd autologins `dimsum` on tty1.
 SSH stays up.
 If the session misbehaves: `sudo systemctl stop greetd`.
@@ -76,25 +86,6 @@ Unit tests, from a checkout. No display and no camera:
 make -C hosts/greeter/bao test
 ```
 
-### 3D bao
-
-`hosts/greeter/bao/bao-3d.nix` is the 3D variant, and the one
-`configuration.nix` imports now. Import `./bao/bao.nix` instead
-to go back. Import one, not both. The bao chip from
-dimsumlabs-graphics `3D/model_for_dslan.blend` (no cable, no
-socket) paces the corner of a red room and trots on its pins.
-Now and then it stops, turns side-on and tips its top back and
-down to look up. A wave at the webcam stops it, turns it to
-face the camera, then plays that same look, with a yellow
-exclamation beside its head. `dsl-bao-wave` watches the camera
-on the CPU. `DSL_BAO_CAMERA` names the device when it is
-not the first camera node. Less often it walks near the
-corner, faces the viewer, raises its rear, leans away and
-lifts its three near hind pins out sideways like a dog
-(rearmost highest), and
-pees from its rear onto the left wall. The puddle dries in about 30 s. A tap
-on it interrupts whatever it is doing: it jumps, spins, bolts
-and plays the same sounds. The QR code and captions are the same.
 The Nix build runs `make all` from this Makefile.
 
 The `.glb` files are committed. To remake them from the blend:
