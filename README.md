@@ -95,7 +95,7 @@ lifts its three near hind pins out sideways like a dog
 pees from its rear onto the left wall. The puddle dries in about 30 s. A tap
 on it interrupts whatever it is doing: it jumps, spins, bolts
 and plays the same sounds. The QR code and captions are the same.
-The Nix check runs this Makefile.
+The Nix build runs `make all` from this Makefile.
 
 The `.glb` files are committed. To remake them from the blend:
 

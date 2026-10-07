@@ -97,33 +97,6 @@ let
       "-DBUILD_SHARED_LIBS=ON"
     ];
   };
-  baoBin = pkgs.stdenv.mkDerivation {
-    pname = "dsl-bao-3d";
-    version = "0";
-    dontUnpack = true;
-    dontConfigure = true;
-    buildInputs = [ raylibDrm pkgs.alsa-lib ];
-    nativeBuildInputs = [ pkgs.pkg-config ];
-    buildPhase = ''
-      $CC -O2 -std=c11 -Wall -Wextra -o dsl-bao-3d ${./bao-3d.c} \
-        -I${./.} \
-        -DDSL_SCREEN_TURN=${toString screenTransform} \
-        -DDSL_BAO_MODELS=\"${models}\" \
-        -DDSL_BAO_FONT=\"${asapRegular}\" \
-        -DDSL_BAO_QR=\"${qrPng}\" \
-        -DDSL_BAO_SOUNDS=\"${sounds}\" \
-        $(pkg-config --cflags --libs raylib) \
-        -lasound -lm
-    '';
-    doCheck = true;
-    checkPhase = ''
-      make -C ${./.} BUILD=$PWD/t test-3d
-    '';
-    installPhase = ''
-      mkdir -p $out/bin
-      install -m 755 dsl-bao-3d $out/bin/dsl-bao-3d-bin
-    '';
-  };
   # MediaPipe palm detector, Apache-2.0, CPU only.
   palmOnnx = pkgs.fetchurl {
     url = "https://huggingface.co/opencv/"
@@ -131,30 +104,36 @@ let
       + "palm_detection_mediapipe_2023feb.onnx";
     hash = "sha256-eP9Rw4SWt/yLjr22zIwauwL6bDhCfGhIJUzaulf8znw=";
   };
-  # CPU watcher. The bao keeps the display GPU.
-  waveBin = pkgs.stdenv.mkDerivation {
-    pname = "dsl-bao-wave";
+  # Makefile links both binaries. The watcher stays on CPU.
+  bins = pkgs.stdenv.mkDerivation {
+    pname = "dsl-bao";
     version = "0";
     dontUnpack = true;
     dontConfigure = true;
-    buildInputs = [ pkgs.libjpeg pkgs.onnxruntime ];
+    buildInputs = [
+      raylibDrm
+      pkgs.alsa-lib
+      pkgs.libjpeg
+      pkgs.onnxruntime
+    ];
     nativeBuildInputs = [ pkgs.pkg-config ];
     buildPhase = ''
-      $CC -O2 -std=c11 -Wall -Wextra -o dsl-bao-wave \
-        ${./bao-gesture.c} ${./bao-wave.c} \
-        -DDSL_BAO_PALM=\"${palmOnnx}\" \
-        -I${./.} \
-        -I${lib.getDev pkgs.onnxruntime}/include \
-        $(pkg-config --cflags --libs libjpeg) -lonnxruntime -lm
+      make -C ${./.} BUILD=$PWD/b all \
+        SCREEN_TURN=${toString screenTransform} \
+        MODELS=${models} \
+        FONT=${asapRegular} \
+        QR=${qrPng} \
+        SOUNDS=${sounds} \
+        PALM=${palmOnnx} \
+        ORT_INC=${lib.getDev pkgs.onnxruntime}/include
     '';
     doCheck = true;
     checkPhase = ''
-      make -C ${./.} BUILD=$PWD/t test-wave test-py \
+      make -C ${./.} BUILD=$PWD/t test \
         PYTHON=${pkgs.python3}/bin/python3
     '';
     installPhase = ''
-      mkdir -p $out/bin
-      install -m 755 dsl-bao-wave $out/bin/dsl-bao-wave
+      make -C ${./.} BUILD=$PWD/b PREFIX=$out install
     '';
   };
   dslBao = pkgs.writeShellScriptBin "dsl-bao-3d" ''
@@ -168,14 +147,14 @@ let
     if [ -d "$vendor" ]; then
       export __EGL_VENDOR_LIBRARY_DIRS=$vendor
     fi
-    exec ${baoBin}/bin/dsl-bao-3d-bin
+    exec ${bins}/bin/dsl-bao-3d-bin
   '';
   # greetd runs this. The picture loop stays up if the bao
   # exits. The watcher retries the camera on its own.
   baoSession = pkgs.writeShellScript "dsl-bao-3d-session" ''
     (
       while true; do
-        ${waveBin}/bin/dsl-bao-wave || true
+        ${bins}/bin/dsl-bao-wave || true
         ${pkgs.coreutils}/bin/sleep 2
       done
     ) &
@@ -201,7 +180,7 @@ in
     "input"
   ];
 
-  environment.systemPackages = [ dslBao waveBin ];
+  environment.systemPackages = [ dslBao bins ];
   system.build.dslBao = dslBao;
 
   # default_session.user in the greetd module is mkDefault
