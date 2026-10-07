@@ -47,7 +47,7 @@
 #include <onnxruntime_c_api.h>
 #endif
 
-#define WAVE_N 8
+#define WAVE_N 32
 #define WAVE_MIN_MASS 0.50f
 #define WAVE_MIN_SPAN 0.16f
 #define WAVE_MIN_STEP 0.05f
@@ -98,10 +98,11 @@ static float span_of(const float *v, int n)
     return hi - lo;
 }
 
-/* 1 when this sample completes a wave. The window is one
-   second at 8 fps. Across, back, across, back is three
-   reversals on x. A sample with no palm holds the last
-   position so it cannot fake a reversal. */
+/* 1 when this sample completes a wave. The window is four
+   seconds at 8 fps, so a slow wave of about three seconds
+   still fits. Across, back, across, back is three reversals
+   on x. A sample with no palm holds the last position so
+   it cannot fake a reversal. */
 static int wave_push(WaveHist *h, float x, float y, float mass)
 {
     float xs[WAVE_N], ys[WAVE_N];
@@ -127,6 +128,9 @@ static int wave_push(WaveHist *h, float x, float y, float mass)
         if (h->mass[at] >= WAVE_MIN_MASS)
             hot++;
     }
+    /* Five palm frames, not most of the window. A fast
+       wave is about a second; the window is longer so a
+       slow one still fits. */
     if (hot < 5)
         return 0;
     {
@@ -381,14 +385,27 @@ static int fail(const char *msg)
     return 1;
 }
 
+/* n is the pattern length. The rest of the window is a
+   still hand: same place, no palm score. A short wave
+   has to pass on its own. */
 static int push_all(
-    WaveHist *h, const float *x, const float *y, float mass)
+    WaveHist *h, const float *x, const float *y,
+    int n, float mass)
 {
     int i, got = 0;
+    float lx = 0.5f, ly = 0.5f;
     wave_clear(h);
-    for (i = 0; i < WAVE_N; i++)
-        got = wave_push(
-            h, x ? x[i] : 0.5f, y ? y[i] : 0.5f, mass);
+    for (i = 0; i < WAVE_N; i++) {
+        float m = 0;
+        if (i < n) {
+            if (x != NULL)
+                lx = x[i];
+            if (y != NULL)
+                ly = y[i];
+            m = mass;
+        }
+        got = wave_push(h, lx, ly, m);
+    }
     return got;
 }
 
@@ -415,28 +432,43 @@ static int check(void)
     float mid[WAVE_N];
     memset(&h, 0, sizeof h);
     for (i = 0; i < WAVE_N; i++) {
-        int got = wave_push(&h, wave[i], 0.5f, 0.80f);
+        float x = (i & 1) ? 0.62f : 0.28f;
+        int got = wave_push(&h, x, 0.5f, 0.80f);
         if (got != (i == WAVE_N - 1))
             return fail("wave");
     }
     if (wave_push(&h, 0.40f, 0.5f, 0.80f))
         return fail("cleared");
-    if (push_all(&h, walk, NULL, 0.80f))
+    if (push_all(&h, walk, NULL, 8, 0.80f))
         return fail("walk");
-    if (push_all(&h, jitter, NULL, 0.80f))
+    if (push_all(&h, jitter, NULL, 8, 0.80f))
         return fail("jitter");
-    if (push_all(&h, flick, NULL, 0.80f))
+    if (push_all(&h, flick, NULL, 8, 0.80f))
         return fail("flick");
-    if (push_all(&h, swipe, NULL, 0.80f))
+    if (push_all(&h, swipe, NULL, 8, 0.80f))
         return fail("swipe");
-    if (push_all(&h, hello, NULL, 0.80f))
+    if (push_all(&h, hello, NULL, 8, 0.80f))
         return fail("hello");
-    if (!push_all(&h, full, NULL, 0.80f))
+    if (!push_all(&h, full, NULL, 8, 0.80f))
         return fail("full");
-    if (push_all(&h, wave, NULL, 0))
+    if (push_all(&h, wave, NULL, 8, 0))
         return fail("nobody");
-    if (push_all(&h, NULL, full, 0.80f))
+    if (push_all(&h, NULL, full, 8, 0.80f))
         return fail("sideways");
+    wave_clear(&h);
+    for (i = 0; i < 8; i++)
+        if (wave_push(&h, 0.25f, 0.5f, 0))
+            return fail("before");
+    for (i = 0; i < 24; i++) {
+        int leg = i / 6;
+        float u = (float)(i % 6) / 5.0f;
+        float x = (leg & 1)
+            ? 0.70f - 0.45f * u
+            : 0.25f + 0.45f * u;
+        int got = wave_push(&h, x, 0.5f, 0.80f);
+        if (got != (i == 23))
+            return fail("slow");
+    }
     for (i = 0; i < WAVE_N; i++)
         mid[i] = 0.50f;
     wave_clear(&h);
