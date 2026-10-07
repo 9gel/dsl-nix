@@ -6,8 +6,10 @@
    the picture changed. Walking past has no palm, or one
    that only translates. On a wave, sends one datagram to
    /tmp/dsl-bao-wave.sock. The same frames go into shared
-   memory so the bao can show the hand. The model runs on
-   the CPU. The bao keeps the display GPU.
+   memory so the bao can show the hand. The panel is mounted
+   sideways and the camera shares that mount, so each grab
+   is turned upright before the palm model sees it. The
+   model runs on the CPU. The bao keeps the display GPU.
 
    ponytail: one palm, the highest score, no second-hand
    NMS. A face that bobs can still greet. A landmark model
@@ -174,6 +176,36 @@ static int frame_moved(
 static float wave_mass(int moving, float palm)
 {
     return moving ? palm : 0;
+}
+
+/* The webcam's top is the viewer's right. Turn 1 moves
+   that edge to the right of the buffer, so the portrait's
+   up is the top row. Turn 3 is the other quarter turn.
+   dst is h by w. */
+static void rot90(
+    const unsigned char *src, int w, int h, int turn,
+    unsigned char *dst)
+{
+    int x, y;
+    for (y = 0; y < h; y++) {
+        for (x = 0; x < w; x++) {
+            int ox, oy;
+            const unsigned char *s =
+                src + ((size_t)y * (size_t)w + (size_t)x) * 3;
+            unsigned char *d;
+            if (turn == 1) {
+                ox = (h - 1) - y;
+                oy = x;
+            } else {
+                ox = y;
+                oy = (w - 1) - x;
+            }
+            d = dst + ((size_t)oy * (size_t)h + (size_t)ox) * 3;
+            d[0] = s[0];
+            d[1] = s[1];
+            d[2] = s[2];
+        }
+    }
 }
 
 /* Longest edge of the preview is BAO_FEED_W. */
@@ -442,6 +474,23 @@ static int check(void)
             || !near(o.x1, 0.070833f)
             || !near(o.y1, 0.120833f))
             return fail("box");
+    }
+    {
+        unsigned char src[2 * 3 * 3], dst[3 * 2 * 3];
+        int i;
+        for (i = 0; i < 6; i++) {
+            src[i * 3] = (unsigned char)(i + 1);
+            src[i * 3 + 1] = 0;
+            src[i * 3 + 2] = 0;
+        }
+        rot90(src, 2, 3, 1, dst);
+        if (dst[0] != 5 || dst[3] != 3 || dst[6] != 1
+            || dst[9] != 6 || dst[12] != 4 || dst[15] != 2)
+            return fail("rot90");
+        rot90(src, 2, 3, 3, dst);
+        if (dst[0] != 2 || dst[3] != 4 || dst[6] != 6
+            || dst[9] != 1 || dst[12] != 3 || dst[15] != 5)
+            return fail("rot270");
     }
     printf("ok\n");
     return 0;
@@ -1121,22 +1170,54 @@ static void sleep_s(double s)
     nanosleep(&req, NULL);
 }
 
+static int camera_turn(void)
+{
+    const char *v = getenv("DSL_BAO_CAMERA_TURN");
+    int t = 1;
+    if (v != NULL && v[0] != '\0')
+        t = atoi(v);
+    return t == 3 ? 3 : 1;
+}
+
+static int frame_upright(const Frame *src, Frame *dst, int turn)
+{
+    int n;
+    if (src->rgb == NULL || src->w < 1 || src->h < 1)
+        return 0;
+    n = src->w * src->h;
+    if (dst->n != n) {
+        unsigned char *p = malloc((size_t)n * 3);
+        if (p == NULL)
+            return 0;
+        free(dst->rgb);
+        dst->rgb = p;
+        dst->n = n;
+    }
+    dst->w = src->h;
+    dst->h = src->w;
+    rot90(src->rgb, src->w, src->h, turn, dst->rgb);
+    return 1;
+}
+
 static int watch(void)
 {
     Cam cam;
-    Frame frame;
+    Frame frame, upright;
     PalmRt palm;
     WaveHist hist;
     BaoFeed *feed;
+    int turn;
     unsigned char *prev = NULL;
     int prev_n = 0;
     int cool = 0, said = 0, hold = 0, have = 0;
     float bx0 = -1, by0 = -1, bx1 = -1, by1 = -1;
     memset(&cam, 0, sizeof cam);
     memset(&frame, 0, sizeof frame);
+    memset(&upright, 0, sizeof upright);
     memset(&palm, 0, sizeof palm);
     memset(&hist, 0, sizeof hist);
     cam.fd = -1;
+    turn = camera_turn();
     feed = feed_open();
     if (feed == NULL)
         fprintf(stderr, "dsl-bao-wave: no preview\n");
@@ -1166,16 +1247,18 @@ static int watch(void)
         }
         if (got > 0) {
             Palm seen = {0};
-            int n = frame.w * frame.h * 3;
-            int moving = 0;
+            int n, moving = 0;
             unsigned flags = 0;
             float mass;
+            if (!frame_upright(&frame, &upright, turn))
+                continue;
+            n = upright.w * upright.h * 3;
             if (prev != NULL && prev_n == n)
-                moving = frame_moved(prev, frame.rgb, n);
+                moving = frame_moved(prev, upright.rgb, n);
             seen.x0 = seen.y0 = seen.x1 = seen.y1 = -1;
             if (moving)
                 palm_run(
-                    &palm, frame.rgb, frame.w, frame.h,
+                    &palm, upright.rgb, upright.w, upright.h,
                     &seen);
             mass = wave_mass(moving, seen.conf);
             if (cool > 0)
@@ -1209,11 +1292,11 @@ static int watch(void)
                 hold--;
             }
             feed_publish(
-                feed, frame.w, frame.h,
-                (flags & BAO_FEED_MOVE) ? frame.rgb : NULL,
+                feed, upright.w, upright.h,
+                (flags & BAO_FEED_MOVE) ? upright.rgb : NULL,
                 seen.x0, seen.y0, seen.x1, seen.y1,
                 mass, flags);
-            (void)keep_prev(&prev, &prev_n, frame.rgb, n);
+            (void)keep_prev(&prev, &prev_n, upright.rgb, n);
         }
         left = 0.125 - (mono() - t0);
         sleep_s(left);
