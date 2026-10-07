@@ -94,6 +94,7 @@ let
     nativeBuildInputs = [ pkgs.pkg-config ];
     buildPhase = ''
       $CC -O2 -std=c11 -Wall -Wextra -o dsl-bao ${./bao.c} \
+        -I${./.} \
         -DDSL_SCREEN_TURN=${toString screenTransform} \
         -DDSL_BAO_LOGO=\"${logoPng}\" \
         -DDSL_BAO_FONT=\"${asapRegular}\" \
@@ -101,6 +102,13 @@ let
         -DDSL_BAO_SOUNDS=\"${sounds}\" \
         $(pkg-config --cflags --libs raylib) \
         -lasound -lm
+    '';
+    doCheck = true;
+    checkPhase = ''
+      $CC -std=c11 -Wall -Wextra -Werror -DDSL_BAO_HEADLESS \
+        -DDSL_BAO_NO_MAIN -I${./.} -o bao-test \
+        ${./bao-test.c} ${./bao.c} -lm
+      ./bao-test
     '';
     installPhase = ''
       mkdir -p $out/bin

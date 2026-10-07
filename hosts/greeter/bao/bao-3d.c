@@ -6,13 +6,15 @@
    exclamation that jumps up beside its head and says "huh?".
    While the camera sees movement, a preview of the same
    shape sits at the top left and draws the palm. The
-   Telegram lines sit above the QR. --check needs no display.
+   Telegram lines sit above the QR.
 */
 
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "bao-3d.h"
 
 #ifndef DSL_BAO_HEADLESS
 #include "raylib.h"
@@ -44,36 +46,36 @@
 #define DSL_BAO_SOUNDS ""
 #endif
 
-static const double k_pi = 3.14159265358979323846;
+const double k_pi = 3.14159265358979323846;
 /* Room units are Blender units. The bao is about 9 wide. The
    corner is the origin; walls stand on x = 0 and z = 0. The bao
    wanders EDGE_LO..EDGE_HI on both floor axes. It steers off
    the walls there, but only CORNER..EDGE_HI is hard: it walks
    in near the corner, to PEE_X, PEE_Z, to pee. */
-static const double EDGE_LO = 9.0;
-static const double EDGE_HI = 50.0;
-static const double CORNER = 6.5;
-static const double PEE_X = 8.0;
-static const double PEE_Z = 10.0;
+const double EDGE_LO = 9.0;
+const double EDGE_HI = 50.0;
+const double CORNER = 6.5;
+const double PEE_X = 8.0;
+const double PEE_Z = 10.0;
 static const double AVOID = 8.0;
-static const double WALK = 7.0;
-static const double RUN = 26.0;
+const double WALK = 7.0;
+const double RUN = 26.0;
 static const double RELAX = 1.2;
 static const double STOP = 4.0;
-static const double TURN_MAX = 0.9;
+const double TURN_MAX = 0.9;
 static const double STRIDE = 3.2;
-static const double JUMP_UP = 34.0;
-static const double MISS_JUMP = 12.0;
+const double JUMP_UP = 34.0;
+const double MISS_JUMP = 12.0;
 static const double GRAVITY = 90.0;
 static const double SPIN_EASE = 5.0;
 static const double POSE_EASE = 4.0;
-static const double DT_MAX = 1.0 / 20.0;
+const double DT_MAX = 1.0 / 20.0;
 /* Odds per wander decision, one every 1.5 to 4.5 s. */
-static const double P_LOOK = 0.12;
+const double P_LOOK = 0.12;
 static const double P_PEE = 0.04;
-static const double LOOK_TIME = 4.5;
-static const double PEE_TIME = 4.5;
-static const double SEEK_MAX = 20.0;
+const double LOOK_TIME = 4.5;
+const double PEE_TIME = 4.5;
+const double SEEK_MAX = 20.0;
 /* The camera looks down the room diagonal from CAM_X, CAM_Z.
    To look up on its own, the bao turns side-on to that view
    (either way), so the lean shows. A wave aims it at the
@@ -81,32 +83,15 @@ static const double SEEK_MAX = 20.0;
    viewer, rear to the corner: its near hind pins (local +Z)
    then lift out toward the left wall, in plain view, like a
    dog's leg at a post. */
-static const double FACE_VIEW = 0.785398163397448;
-static const double FACE_PEE = FACE_VIEW;
-static const double CAM_X = 84;
-static const double CAM_Z = 84;
-static const double NOTICE_LOOK = 3.0;
+const double FACE_VIEW = 0.785398163397448;
+const double FACE_PEE = FACE_VIEW;
+const double CAM_X = 84;
+const double CAM_Z = 84;
+const double NOTICE_LOOK = 3.0;
 /* Seconds for the exclamation's jump, then its stretch. */
 static const double MARK_POP = 0.40;
 
-enum { WALKING, LOOKING, SEEKING, PEEING, NOTICING };
-
-typedef struct {
-    double x, z, heading, speed, turn, wander;
-    double y, vy, spin, spin_to, phase;
-    int mode;
-    double act, look, lift, puddle, gait, aim, mark, pop;
-} Bao;
-
-typedef struct {
-    double x, y;
-} Vec;
-
-typedef struct {
-    double x, y, w, h, rot;
-} Place;
-
-static double wrap_angle(double a)
+double wrap_angle(double a)
 {
     while (a > k_pi)
         a -= 2 * k_pi;
@@ -120,7 +105,7 @@ static double clampd(double v, double lo, double hi)
     return v < lo ? lo : v > hi ? hi : v;
 }
 
-static Bao bao_at(double x, double z, double heading)
+Bao bao_at(double x, double z, double heading)
 {
     Bao b = {0};
     b.x = x;
@@ -131,7 +116,7 @@ static Bao bao_at(double x, double z, double heading)
     return b;
 }
 
-static void set_mode(Bao *b, int mode)
+void set_mode(Bao *b, int mode)
 {
     b->mode = mode;
     b->act = 0;
@@ -184,7 +169,7 @@ static double wander(Bao *b, double dt, double r1, double r2)
 /* One tick. r1 and r2 are uniform in [0, 1) and drive the next
    wander decision: turn, stop and look up, or go pee in the
    corner. A wave is separate: notice(). */
-static void walk(Bao *b, double dt, double r1, double r2)
+void walk(Bao *b, double dt, double r1, double r2)
 {
     double speed_to = WALK, look_to = 0, lift_to = 0;
     double omega = 0, rate, ease, dist, want;
@@ -273,7 +258,7 @@ static void walk(Bao *b, double dt, double r1, double r2)
 
 /* A hit jumps, spins once and bolts along flee, whatever the bao
    was up to. A miss hops. */
-static void poke(Bao *b, int hit, double flee)
+void poke(Bao *b, int hit, double flee)
 {
     if (hit) {
         set_mode(b, WALKING);
@@ -292,19 +277,19 @@ static double face_camera(const Bao *b)
     return atan2(CAM_Z - b->z, CAM_X - b->x);
 }
 
-static void notice(Bao *b)
+void notice(Bao *b)
 {
     set_mode(b, NOTICING);
     b->aim = face_camera(b);
     b->pop = 0;
 }
 
-static int norm_turn(int turn)
+int norm_turn(int turn)
 {
     return turn == 3 ? 3 : 1;
 }
 
-static Vec logical_to_fb(int turn, int lw, int lh, double x, double y)
+Vec logical_to_fb(int turn, int lw, int lh, double x, double y)
 {
     Vec p;
     if (turn == 1) {
@@ -317,7 +302,7 @@ static Vec logical_to_fb(int turn, int lw, int lh, double x, double y)
     return p;
 }
 
-static Vec fb_to_logical(int turn, int lw, int lh, double x, double y)
+Vec fb_to_logical(int turn, int lw, int lh, double x, double y)
 {
     Vec p;
     if (turn == 1) {
@@ -331,15 +316,15 @@ static Vec fb_to_logical(int turn, int lw, int lh, double x, double y)
 }
 
 /* Dest rect of the portrait texture on the landscape mode.
-   Corners match logical_to_fb. check() locks that. */
-static Place scene_place(int turn, int fw, int fh)
+   Corners match logical_to_fb. */
+Place scene_place(int turn, int fw, int fh)
 {
     if (turn == 1)
         return (Place){0, fh, fh, fw, -90};
     return (Place){fw, 0, fh, fw, 90};
 }
 
-static Vec place_point(Place pl, double u, double v)
+Vec place_point(Place pl, double u, double v)
 {
     double rad = pl.rot * k_pi / 180.0;
     Vec o;
@@ -348,22 +333,18 @@ static Vec place_point(Place pl, double u, double v)
     return o;
 }
 
+#ifndef DSL_BAO_HEADLESS
 static int fail(const char *msg)
 {
     fprintf(stderr, "dsl-bao-3d: %s\n", msg);
     return 1;
 }
+#endif
 
-static void run_for(Bao *b, double seconds, double r1, double r2)
-{
-    double t;
-    for (t = 0; t < seconds; t += 1.0 / 60)
-        walk(b, 1.0 / 60, r1, r2);
-}
 
 /* Camera-right (ux, uz) in the bao's xz. yaw is -heading
    + spin, the same yaw as the model matrix. */
-static void local_side(
+void local_side(
     float ux, float uz, float yaw, float *lx, float *lz)
 {
     float c = cosf(yaw);
@@ -373,18 +354,18 @@ static void local_side(
 }
 
 /* Half-extent of the head along a unit local xz direction. */
-static float head_reach(float rx, float rz, float lx, float lz)
+float head_reach(float rx, float rz, float lx, float lz)
 {
     return sqrtf((rx * lx) * (rx * lx) + (rz * lz) * (rz * lz));
 }
 
 /* Share of the pop that is the jump. The rest stretches. */
-static const float MARK_JUMP = 0.64f;
+const float MARK_JUMP = 0.64f;
 
 /* t is 0..1. Starts small, below the spot, jumps up to full
    size, then stretches tall once and settles. hop is added
    to the ball's rest height. */
-static void mark_pose(float t, float *sx, float *sy, float *hop)
+void mark_pose(float t, float *sx, float *sy, float *hop)
 {
     float u, w;
     if (t < 0)
@@ -405,15 +386,9 @@ static void mark_pose(float t, float *sx, float *sy, float *hop)
     *hop = 0;
 }
 
-typedef struct {
-    float margin, side;
-    float tx, ty;
-    float qx, qy;
-} Hud;
-
 /* QR under the caption, top right. text_h is the
    measured caption block. */
-static Hud hud_place(int lw, int lh, float text_h)
+Hud hud_place(int lw, int lh, float text_h)
 {
     Hud h;
     float gap;
@@ -429,7 +404,7 @@ static Hud hud_place(int lw, int lh, float text_h)
 
 /* Preview top is 10px down. Its bottom meets the QR
    bottom, and its width follows the camera. */
-static void feed_place(
+void feed_place(
     float qr_bottom, int fw, int fh,
     float *x, float *y, float *w, float *h)
 {
@@ -445,7 +420,7 @@ static void feed_place(
 }
 
 /* Hand box in frame fractions, on a panel of that aspect. */
-static void feed_box(
+void feed_box(
     float pw, float ph,
     float x0, float y0, float x1, float y1,
     float *bx, float *by, float *bw, float *bh)
@@ -456,266 +431,6 @@ static void feed_box(
     *bh = (y1 - y0) * ph;
 }
 
-static int check(void)
-{
-    Bao b = bao_at(30, 30, 0);
-    double spin, peak = 0, t, r, x0, z0;
-    int i, turn, modes[5] = {0};
-
-    for (i = 0; i < 200000; i++) {
-        r = (double)((i * 7919) % 1000) / 1000;
-        x0 = b.x;
-        z0 = b.z;
-        walk(&b, 1.0 / 60, r, 1 - r);
-        if (hypot(b.x - x0, b.z - z0) > WALK / 60 + 1e-9)
-            return fail("teleport");
-        modes[b.mode] = 1;
-        if (b.x < CORNER || b.x > EDGE_HI)
-            return fail("x out of patch");
-        if (b.z < CORNER || b.z > EDGE_HI)
-            return fail("z out of patch");
-    }
-    if (!modes[LOOKING] || !modes[SEEKING] || !modes[PEEING])
-        return fail("every act happens");
-
-    /* A long gentle arc, not a tight circle: r2 = 0.9 is a hard
-       turn draw, still under TURN_MAX. */
-    b = bao_at(30, 30, 0);
-    b.wander = 0;
-    walk(&b, 1.0 / 60, 0.9, 0.99);
-    if (!(fabs(b.turn) <= TURN_MAX) || fabs(b.turn) < 0.5)
-        return fail("hard turn");
-    b.wander = 0;
-    walk(&b, 1.0 / 60, 0.9, 0.7);
-    if (!(fabs(b.turn) < 0.1 * TURN_MAX))
-        return fail("gentle turn");
-    b.wander = 0;
-    walk(&b, 1.0 / 60, 0.3, 0.99);
-    if (b.turn != 0)
-        return fail("straight");
-
-    /* Pinned at a wall, facing it: it must turn away. */
-    b = bao_at(EDGE_LO, 30, k_pi);
-    run_for(&b, 5, 0.5, 0.5);
-    if (!(b.x > EDGE_LO + 1))
-        return fail("wall turn");
-
-    /* Look: stop, turn side-on, look up, then walk on. */
-    b = bao_at(30, 30, 0);
-    b.wander = 0;
-    walk(&b, 1.0 / 60, 0.01, 0.5);
-    if (b.mode != LOOKING)
-        return fail("look starts");
-    run_for(&b, 3, 0.5, 0.5);
-    if (!(b.speed < 0.5) || !(b.look > 0.8))
-        return fail("look pose");
-    if (fabs(wrap_angle(b.heading - b.aim)) > 0.01)
-        return fail("look turns");
-    if (fabs(fabs(wrap_angle(b.aim - FACE_VIEW)) - k_pi / 2) > 1e-9)
-        return fail("look side-on");
-    run_for(&b, LOOK_TIME, 0.5, 0.5);
-    if (b.mode != WALKING || !(b.look < 0.2))
-        return fail("look ends");
-
-    /* Wave: stop, face the camera, then look up. The clock
-       waits out the turn, so a long turn cannot eat the look. */
-    b = bao_at(30, 30, 0);
-    notice(&b);
-    if (fabs(wrap_angle(b.aim - atan2(CAM_Z - 30, CAM_X - 30)))
-        > 1e-9)
-        return fail("faces camera");
-    if (fabs(fabs(wrap_angle(b.aim - FACE_VIEW)) - k_pi / 2) < 0.2)
-        return fail("wave is side-on");
-    run_for(&b, 0.25, 0.5, 0.5);
-    if (b.mode != NOTICING || b.look > 0.2)
-        return fail("look waits");
-    if (!(fabs(wrap_angle(b.heading - b.aim)) > 0.2))
-        return fail("still turning");
-    run_for(&b, 2.0, 0.5, 0.5);
-    if (b.mode != NOTICING)
-        return fail("wave still on");
-    if (fabs(wrap_angle(b.heading - b.aim)) > 0.01)
-        return fail("faced camera");
-    if (!(b.look > 0.8) || !(b.speed < 0.5) || !(b.mark > 0.8))
-        return fail("wave pose");
-    b = bao_at(50, 10, 0);
-    notice(&b);
-    if (fabs(wrap_angle(
-            b.aim - atan2(CAM_Z - 10, CAM_X - 50))) > 1e-9)
-        return fail("aim follows camera");
-    if (fabs(wrap_angle(b.aim - FACE_VIEW)) < 0.2)
-        return fail("aim is a fixed heading");
-    b = bao_at(30, 30, FACE_VIEW);
-    notice(&b);
-    run_for(&b, 0.5, 0.5, 0.5);
-    if (!(b.look > 0.5))
-        return fail("looks once faced");
-    run_for(&b, NOTICE_LOOK + 1.2, 0.5, 0.5);
-    if (b.mode != WALKING || !(b.look < 0.2) || !(b.mark < 0.2))
-        return fail("wave ends");
-    notice(&b);
-    poke(&b, 1, 1.0);
-    if (b.mode != WALKING || b.vy != JUMP_UP)
-        return fail("tap beats wave");
-    /* Facing the camera, camera-right is the head's +Z side.
-       Straight at the front, it is the long axis. */
-    {
-        float lx, lz, reach;
-        local_side(
-            -0.70710678f, 0.70710678f,
-            (float)(-k_pi / 4), &lx, &lz);
-        if (fabsf(lx) > 0.02f || fabsf(lz - 1.0f) > 0.02f)
-            return fail("mark side");
-        reach = head_reach(4.0f, 3.0f, lx, lz);
-        if (fabsf(reach - 3.0f) > 0.02f)
-            return fail("mark reach");
-        local_side(1.0f, 0.0f, 0.0f, &lx, &lz);
-        reach = head_reach(4.0f, 3.0f, lx, lz);
-        if (fabsf(reach - 4.0f) > 0.02f)
-            return fail("mark reach front");
-    }
-    {
-        float scx, scy, hop;
-        mark_pose(0, &scx, &scy, &hop);
-        if (!(scx < 0.35f) || fabsf(scx - scy) > 0.02f)
-            return fail("mark starts small");
-        if (!(hop < -0.5f))
-            return fail("mark jump start");
-        mark_pose(MARK_JUMP, &scx, &scy, &hop);
-        if (fabsf(scx - 1) > 0.02f || fabsf(scy - 1) > 0.02f)
-            return fail("mark full size");
-        if (fabsf(hop) > 0.02f)
-            return fail("mark landed");
-        mark_pose(0.82f, &scx, &scy, &hop);
-        if (!(scy > 1.1f) || !(scy > scx + 0.15f))
-            return fail("mark stretches");
-        if (fabsf(hop) > 0.02f)
-            return fail("stretch stays put");
-        mark_pose(1, &scx, &scy, &hop);
-        if (fabsf(scx - 1) > 0.02f || fabsf(scy - 1) > 0.02f)
-            return fail("mark settles");
-        if (fabsf(hop) > 0.02f)
-            return fail("mark hop ends");
-    }
-    b = bao_at(30, 30, 0);
-    b.pop = 0.7;
-    notice(&b);
-    if (b.pop != 0)
-        return fail("pop resets");
-    run_for(&b, 0.05, 0.5, 0.5);
-    if (!(b.pop > 0.05 && b.pop < 0.3))
-        return fail("mark pops");
-    run_for(&b, 1, 0.5, 0.5);
-    if (b.pop != 1 || b.mark != 1)
-        return fail("mark pop ends");
-
-    /* Pee: walk to the spot, turn side-on, lift, puddle. */
-    b = bao_at(40, 30, 0);
-    b.wander = 0;
-    walk(&b, 1.0 / 60, P_LOOK + 0.01, 0.5);
-    if (b.mode != SEEKING)
-        return fail("seek starts");
-    for (t = 0; t < SEEK_MAX && b.mode == SEEKING; t += 1.0 / 60)
-        walk(&b, 1.0 / 60, 0.5, 0.5);
-    if (b.mode != PEEING)
-        return fail("reaches corner");
-    if (hypot(b.x - PEE_X, b.z - PEE_Z) > 1)
-        return fail("pee spot");
-    run_for(&b, 3, 0.5, 0.5);
-    if (!(b.lift > 0.8) || !(b.puddle > 0))
-        return fail("pee pose");
-    if (fabs(wrap_angle(b.heading - FACE_PEE)) > 0.01)
-        return fail("pee pose heading");
-    run_for(&b, PEE_TIME, 0.5, 0.5);
-    if (b.mode != WALKING || !(b.lift < 0.2))
-        return fail("pee ends");
-    run_for(&b, 40, 0.5, 0.5);
-    if (b.puddle != 0)
-        return fail("puddle dries");
-
-    /* A hit interrupts anything. */
-    b = bao_at(30, 30, 0);
-    set_mode(&b, PEEING);
-    poke(&b, 1, 1.0);
-    if (b.mode != WALKING || b.vy != JUMP_UP || b.speed != RUN)
-        return fail("hit");
-    if (b.heading != 1.0)
-        return fail("hit heading");
-    spin = b.spin_to;
-    if (fabs(spin) != 2 * k_pi)
-        return fail("hit spin");
-    for (t = 0; t < 3; t += 1.0 / 60) {
-        walk(&b, 1.0 / 60, 0.5, 0.5);
-        if (b.y > peak)
-            peak = b.y;
-    }
-    if (b.y != 0 || b.vy != 0)
-        return fail("landing");
-    if (!(peak > 5))
-        return fail("jump height");
-    if (fabs(b.spin - spin) > 0.01)
-        return fail("spin settles");
-    if (!(b.speed < RUN) || !(b.speed > WALK))
-        return fail("run relaxes");
-
-    poke(&b, 0, 0);
-    if (b.vy != MISS_JUMP)
-        return fail("miss hop");
-    b.y = 1;
-    b.vy = 5;
-    poke(&b, 0, 0);
-    if (b.vy != 5)
-        return fail("no hop mid-air");
-
-    b = bao_at(30, 30, 0);
-    walk(&b, 10, 0.5, 0.5);
-    if (fabs(b.x - (30 + WALK * DT_MAX)) > 0.1)
-        return fail("dt cap");
-
-    for (turn = 1; turn <= 3; turn += 2) {
-        Place pl = scene_place(turn, 2560, 1440);
-        double us[4] = {0, 1440, 0, 1440};
-        double vs[4] = {0, 0, 2560, 2560};
-        Vec fb = logical_to_fb(turn, 1440, 2560, 100, 200);
-        Vec back = fb_to_logical(turn, 1440, 2560, fb.x, fb.y);
-        if (fabs(back.x - 100) > 1e-6 || fabs(back.y - 200) > 1e-6)
-            return fail("touch roundtrip");
-        for (i = 0; i < 4; i++) {
-            Vec got = place_point(pl, us[i], vs[i]);
-            Vec want = logical_to_fb(turn, 1440, 2560, us[i], vs[i]);
-            if (fabs(got.x - want.x) > 0.05
-                || fabs(got.y - want.y) > 0.05)
-                return fail("place corner");
-        }
-    }
-    if (norm_turn(0) != 1 || norm_turn(3) != 3)
-        return fail("turn");
-    {
-        Hud h = hud_place(1440, 2560, 80);
-        float bottom = h.qy + h.side;
-        float x, y, w, hgt, bx, by, bw, bh;
-        if (fabsf(h.side - 2560 * 0.2f) > 0.01f)
-            return fail("qr size");
-        if (!(h.qy > h.ty + 80) || !(h.qx > 720))
-            return fail("qr");
-        feed_place(bottom, 240, 320, &x, &y, &w, &hgt);
-        if (fabsf(y - 10) > 0.01f || fabsf(x - 10) > 0.01f)
-            return fail("video top");
-        if (fabsf((y + hgt) - bottom) > 0.01f)
-            return fail("video bottom");
-        if (fabsf(w / hgt - 0.75f) > 0.001f)
-            return fail("aspect");
-        feed_box(w, hgt, 0.25f, 0.25f, 0.75f, 0.75f,
-            &bx, &by, &bw, &bh);
-        if (fabsf(bx - 0.25f * w) > 0.01f
-            || fabsf(by - 0.25f * hgt) > 0.01f
-            || fabsf(bw - 0.5f * w) > 0.01f
-            || fabsf(bh - 0.5f * hgt) > 0.01f)
-            return fail("hand");
-    }
-    printf("ok\n");
-    return 0;
-}
 
 #ifndef DSL_BAO_HEADLESS
 
@@ -1646,10 +1361,9 @@ static int run(void)
 
 #endif
 
+#ifndef DSL_BAO_NO_MAIN
 int main(int argc, char **argv)
 {
-    if (argc >= 2 && strcmp(argv[1], "--check") == 0)
-        return check();
 #ifdef DSL_BAO_HEADLESS
     fprintf(stderr, "dsl-bao-3d: this build has no display\n");
     return 1;
@@ -1658,3 +1372,4 @@ int main(int argc, char **argv)
     return run();
 #endif
 }
+#endif

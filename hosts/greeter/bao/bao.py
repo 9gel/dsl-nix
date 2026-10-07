@@ -1,8 +1,7 @@
 """Build the bao's boing and the Telegram QR card.
 
 The kiosk is hosts/greeter/bao/bao-3d.c. This file only writes
-the wav and the QR png. `python3 bao.py --check` does not open
-a display and does not import pygame.
+the wav and the QR png. It does not open a display.
 """
 
 from __future__ import annotations
@@ -11,7 +10,6 @@ import math
 import os
 import struct
 import sys
-import tempfile
 import wave
 from pathlib import Path
 
@@ -102,27 +100,13 @@ def write_qr(path: Path) -> None:
     pygame.image.save(card, str(path))
 
 
-def check() -> None:
-    zoned = quiet_zone([[1]], 1)
-    assert zoned == [[0, 0, 0], [0, 1, 0], [0, 0, 0]]
-    with tempfile.TemporaryDirectory() as tmp:
-        boing = Path(tmp) / "boing.wav"
-        write_boing(boing)
-        data = boing.read_bytes()
-    assert data[:4] == b"RIFF"
-    assert len(data) > 1000
-    print("ok")
-
-
 if __name__ == "__main__":
-    if "--check" in sys.argv:
-        check()
-    elif "--write-boing" in sys.argv:
+    if "--write-boing" in sys.argv:
         write_boing(Path(sys.argv[-1]))
     elif "--write-qr" in sys.argv:
         write_qr(Path(sys.argv[-1]))
     else:
         sys.stderr.write(
-            "use --check, --write-boing, or --write-qr\n",
+            "use --write-boing or --write-qr\n",
         )
         raise SystemExit(2)

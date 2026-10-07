@@ -70,13 +70,15 @@ A tap on the bao plays boing, ouch, "don't touch me!", or
 SSH stays up.
 If the session misbehaves: `sudo systemctl stop greetd`.
 
-Motion check, no display:
+Unit tests, no display:
 
 ```sh
 cc -std=c11 -Wall -Wextra -Werror -DDSL_BAO_HEADLESS \
-  -o /tmp/bao-check hosts/greeter/bao/bao.c -lm \
-  && /tmp/bao-check --check
-rm /tmp/bao-check
+  -DDSL_BAO_NO_MAIN -Ihosts/greeter/bao \
+  -o /tmp/bao-test \
+  hosts/greeter/bao/bao-test.c hosts/greeter/bao/bao.c -lm \
+  && /tmp/bao-test
+rm /tmp/bao-test
 ```
 
 ### 3D bao
@@ -98,7 +100,7 @@ lifts its three near hind pins out sideways like a dog
 pees from its rear onto the left wall. The puddle dries in about 30 s. A tap
 on it interrupts whatever it is doing: it jumps, spins, bolts
 and plays the same sounds. The QR code and captions are the same. The build runs
-`dsl-bao-3d --check`.
+`bao-3d-test`.
 
 The `.glb` files are committed. To remake them from the blend:
 
@@ -107,28 +109,32 @@ Blender -b ~/Code/dimsumlabs-graphics/3D/model_for_dslan.blend \
   --python hosts/greeter/bao/bao-3d-export.py -- hosts/greeter/bao
 ```
 
-Motion check, no display:
+Unit tests, no display:
 
 ```sh
 cc -std=c11 -Wall -Wextra -Werror -DDSL_BAO_HEADLESS \
-  -o /tmp/bao-3d-check hosts/greeter/bao/bao-3d.c -lm \
-  && /tmp/bao-3d-check --check
-rm /tmp/bao-3d-check
+  -DDSL_BAO_NO_MAIN -Ihosts/greeter/bao \
+  -o /tmp/bao-3d-test \
+  hosts/greeter/bao/bao-3d-test.c hosts/greeter/bao/bao-3d.c \
+  -lm && /tmp/bao-3d-test
+rm /tmp/bao-3d-test
 ```
 
-Wave check, no camera:
+Wave tests, no camera:
 
 ```sh
-cc -std=c11 -Wall -Wextra -Werror -DDSL_BAO_HEADLESS \
-  -o /tmp/bao-wave-check hosts/greeter/bao/bao-wave.c -lm \
-  && /tmp/bao-wave-check --check
-rm /tmp/bao-wave-check
+cc -std=c11 -Wall -Wextra -Werror -Ihosts/greeter/bao \
+  -o /tmp/bao-wave-test \
+  hosts/greeter/bao/bao-wave-test.c \
+  hosts/greeter/bao/bao-gesture.c -lm \
+  && /tmp/bao-wave-test
+rm /tmp/bao-wave-test
 ```
 
-Wav and QR writers:
+Wav and QR tests:
 
 ```sh
-python3 hosts/greeter/bao/bao.py --check
+python3 hosts/greeter/bao/test_bao.py
 ```
 
 The live image still logs in as `nigel`. A switch adds `dimsum`

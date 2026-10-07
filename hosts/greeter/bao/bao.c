@@ -3,13 +3,15 @@
    The panel is landscape and mounted sideways. The scene is
    drawn portrait, then turned onto the mode. DSL_SCREEN_TURN
    1 is that turn. Use 3 if the picture is still sideways.
-   Touch uses the inverse. --check needs no display.
+   Touch uses the inverse.
 */
 
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "bao.h"
 
 #ifndef DSL_BAO_HEADLESS
 #include "raylib.h"
@@ -32,53 +34,35 @@
 #endif
 
 static const double k_pi = 3.14159265358979323846;
-static const double CRUISE = 450.0;
-static const double MAX_SPEED = 1700.0;
+const double CRUISE = 450.0;
+const double MAX_SPEED = 1700.0;
 static const double DAMP = 1.35;
-static const double JUMP_UP = 1400.0;
-static const double MISS_JUMP = 780.0;
+const double JUMP_UP = 1400.0;
+const double MISS_JUMP = 780.0;
 static const double POKE_HIT = 700.0;
 static const double POKE_MISS = 280.0;
 static const double SPIN = 8.0;
-static const double HOP_TIME = 1.15;
+const double HOP_TIME = 1.15;
 static const double GRAVITY = 1600.0;
 static const double DT_MAX = 1.0 / 20.0;
 static const double LOGO_FRACTION = 0.40;
 static const double SPIN_DAMP = 3.0;
 static const double QR_FRACTION = 0.2;
 
-static const char *sound_names[] = {
+const char *sound_names[] = {
     "boing",
     "ouch",
     "dont-touch-me",
     "stop-it",
 };
-static const int sound_n = 4;
+const int sound_n = 4;
 
-typedef struct {
-    double x, y, vx, vy, w, h, spin, hop;
-} Body;
-
-typedef struct {
-    int cx, cy, width, height;
-    int sx, sy, shadow_w, shadow_h, alpha;
-    int box_l, box_t, box_r, box_b;
-} Frame;
-
-typedef struct {
-    double x, y;
-} Vec;
-
-typedef struct {
-    double x, y, w, h, rot;
-} Place;
-
-static const char *sound_at(int index)
+const char *sound_at(int index)
 {
     return sound_names[index % sound_n];
 }
 
-static void logo_span(
+void logo_span(
     double screen_w, double screen_h,
     double image_w, double image_h,
     int *out_w, int *out_h)
@@ -100,7 +84,7 @@ static void logo_span(
         *out_h = 1;
 }
 
-static Vec clamp_speed(double vx, double vy)
+Vec clamp_speed(double vx, double vy)
 {
     double speed = hypot(vx, vy);
     Vec out;
@@ -114,7 +98,7 @@ static Vec clamp_speed(double vx, double vy)
     return out;
 }
 
-static Vec damp(double vx, double vy, double dt)
+Vec damp(double vx, double vy, double dt)
 {
     double speed = hypot(vx, vy);
     double excess, gain, scale;
@@ -143,7 +127,7 @@ static int contains(const Body *body, double tx, double ty)
         && fabs(ty - body->y) <= body->h / 2;
 }
 
-static int poke(Body *body, double tx, double ty)
+int poke(Body *body, double tx, double ty)
 {
     double dx = body->x - tx;
     double dy = body->y - ty;
@@ -190,7 +174,7 @@ static int bounce(Body *body, double sw, double sh, double top)
     return hit;
 }
 
-static int step(
+int step(
     Body *body, double sw, double sh, double dt, double top)
 {
     Vec capped;
@@ -235,7 +219,7 @@ static void rotated_bounds(
     *bottom = (int)ceil(cy + tall / 2);
 }
 
-static Frame frame_of(const Body *body, double squash, double now)
+Frame frame_of(const Body *body, double squash, double now)
 {
     double lift = 0;
     double bob, sy_f;
@@ -284,7 +268,7 @@ static Frame frame_of(const Body *body, double squash, double now)
     return fr;
 }
 
-static void header_box(
+void header_box(
     int screen_w, int screen_h,
     int *side, int *qx, int *qy, int *play_top)
 {
@@ -299,7 +283,7 @@ static void header_box(
     *play_top = margin + *side;
 }
 
-static void footer_box(
+void footer_box(
     int screen_w, int screen_h,
     int *margin, int *width, int *right)
 {
@@ -312,12 +296,12 @@ static void footer_box(
     *right = screen_w - *margin;
 }
 
-static int norm_turn(int turn)
+int norm_turn(int turn)
 {
     return turn == 3 ? 3 : 1;
 }
 
-static void logical_size(int turn, int fw, int fh, int *lw, int *lh)
+void logical_size(int turn, int fw, int fh, int *lw, int *lh)
 {
     if (turn == 1 || turn == 3) {
         *lw = fh;
@@ -328,7 +312,7 @@ static void logical_size(int turn, int fw, int fh, int *lw, int *lh)
     }
 }
 
-static Vec logical_to_fb(
+Vec logical_to_fb(
     int turn, int lw, int lh, double x, double y)
 {
     Vec p;
@@ -345,7 +329,7 @@ static Vec logical_to_fb(
     return p;
 }
 
-static Vec fb_to_logical(
+Vec fb_to_logical(
     int turn, int lw, int lh, double x, double y)
 {
     Vec p;
@@ -363,8 +347,8 @@ static Vec fb_to_logical(
 }
 
 /* Dest rect of the portrait texture on the landscape mode.
-   Corners match logical_to_fb. check() locks that. */
-static Place scene_place(int turn, int fw, int fh)
+   Corners match logical_to_fb. */
+Place scene_place(int turn, int fw, int fh)
 {
     Place p;
     if (turn == 1) {
@@ -402,7 +386,7 @@ static Vec rot_cw(Vec p, Vec pivot, double deg)
     return o;
 }
 
-static Vec place_point(Place place, double u, double v)
+Vec place_point(Place place, double u, double v)
 {
     Vec p;
     p.x = place.x + u;
@@ -410,158 +394,6 @@ static Vec place_point(Place place, double u, double v)
     return rot_cw(p, (Vec){place.x, place.y}, place.rot);
 }
 
-static int fail(const char *msg)
-{
-    fprintf(stderr, "dsl-bao: %s\n", msg);
-    return 1;
-}
-
-static int check(void)
-{
-    int sw, sh, side, qx, qy, play_top, margin, width, right;
-    int lw, lh, i;
-    double vy, us[4], vs[4];
-    Vec capped, slowed, back;
-    Body body, missed, spinning, capped_body, still;
-    Frame fr;
-    Place place;
-
-    logo_span(1000, 800, 85, 85, &sw, &sh);
-    if (sw != 320 || sh != 320)
-        return fail("logo_span");
-    logo_span(100, 100, 0, 0, &sw, &sh);
-    if (sw != 1 || sh != 1)
-        return fail("logo_span zero");
-
-    capped = clamp_speed(3000, 4000);
-    if (hypot(capped.x, capped.y) > MAX_SPEED + 1e-6)
-        return fail("clamp_speed");
-
-    slowed = damp(1000, 0, 1);
-    if (!(CRUISE < slowed.x && slowed.x < 1000) || slowed.y != 0)
-        return fail("damp fast");
-    slowed = damp(10, 0, 1);
-    if (!(10 < slowed.x && slowed.x <= CRUISE))
-        return fail("damp slow");
-
-    body = (Body){5, 100, -200, 0, 20, 20, 0, 0};
-    if (!step(&body, 200, 200, 0.016, 0) || body.x != 10)
-        return fail("left wall");
-    if (!(body.vx > 0))
-        return fail("left wall vx");
-
-    body = (Body){100, 195, 0, 400, 20, 20, 0, 0};
-    step(&body, 200, 200, 0.016, 0);
-    if (body.y != 190 || !(body.vy < 0))
-        return fail("floor");
-
-    body = (Body){15, 100, -MAX_SPEED, 0, 20, 20, 0, 0};
-    step(&body, 200, 200, 10, 0);
-    if (body.x < 10 || body.x > 190)
-        return fail("dt cap");
-
-    body = (Body){100, 100, 0, 0, 40, 40, 0, 0};
-    if (!poke(&body, 115, 100) || !(body.vx < 0))
-        return fail("poke hit");
-    if (body.vy != -JUMP_UP || !(body.spin < 0))
-        return fail("poke jump");
-    if (body.hop != HOP_TIME)
-        return fail("poke hop");
-    body.x = 1000;
-    body.y = 1000;
-    vy = body.vy;
-    step(&body, 4000, 4000, 0.1, 0);
-    if (!(body.y < 1000) || !(vy < body.vy && body.vy < 0))
-        return fail("gravity");
-
-    missed = (Body){100, 100, 0, 0, 40, 40, 0, 0};
-    if (poke(&missed, 0, 0) || missed.vy != -MISS_JUMP)
-        return fail("poke miss");
-    if (!(missed.vy > -JUMP_UP))
-        return fail("miss shorter");
-
-    spinning = (Body){200, 200, 30, 0, 20, 20, 4, 0};
-    step(&spinning, 800, 800, 0.05, 0);
-    if (!(spinning.spin < 4))
-        return fail("spin damp");
-
-    header_box(1440, 2560, &side, &qx, &qy, &play_top);
-    if (side != 512 || qy != 51 || qx != 1440 - 51 - 512)
-        return fail("header");
-    if (play_top != qy + side)
-        return fail("play top");
-
-    footer_box(1440, 2560, &margin, &width, &right);
-    if (margin != 51 || width != 720 || right != 1440 - 51)
-        return fail("footer");
-
-    for (i = 0; i < 4; i++) {
-        if (strcmp(sound_at(i), sound_names[i]) != 0)
-            return fail("sound order");
-    }
-    if (strcmp(sound_at(4), "boing") != 0)
-        return fail("sound wrap");
-
-    capped_body = (Body){100, 40, 0, -400, 20, 20, 0, 0};
-    step(&capped_body, 400, 800, 0.05, 100);
-    if (capped_body.y != 110 || !(capped_body.vy > 0))
-        return fail("ceiling");
-
-    still = (Body){100, 100, 0, 0, 40, 40, 0, 0};
-    fr = frame_of(&still, 1, 0);
-    if (fr.cx != 100 || fr.cy != 100 || fr.width != 40)
-        return fail("logo frame");
-    if (fr.height != 40)
-        return fail("logo frame h");
-    if (fr.sx != 100 || fr.sy != 116 || fr.shadow_w != 24)
-        return fail("shadow");
-    if (fr.shadow_h != 5)
-        return fail("shadow h");
-    if (fr.box_l != 74 || fr.box_t != 74)
-        return fail("box origin");
-    if (fr.box_r != 126 || fr.box_b != 126)
-        return fail("box extent");
-
-    for (i = 0; i < 2; i++) {
-        int turn = i == 0 ? 1 : 3;
-        logical_size(turn, 2560, 1440, &lw, &lh);
-        if (lw != 1440 || lh != 2560)
-            return fail("logical size");
-        back = fb_to_logical(
-            turn, lw, lh,
-            logical_to_fb(turn, lw, lh, 100, 200).x,
-            logical_to_fb(turn, lw, lh, 100, 200).y);
-        if (fabs(back.x - 100) > 1e-6 || fabs(back.y - 200) > 1e-6)
-            return fail("touch roundtrip");
-        us[0] = 0;
-        vs[0] = 0;
-        us[1] = lw;
-        vs[1] = 0;
-        us[2] = 0;
-        vs[2] = lh;
-        us[3] = lw;
-        vs[3] = lh;
-        place = scene_place(turn, 2560, 1440);
-        for (sw = 0; sw < 4; sw++) {
-            Vec got = place_point(place, us[sw], vs[sw]);
-            Vec want = logical_to_fb(
-                turn, lw, lh, us[sw], vs[sw]);
-            if (fabs(got.x - want.x) > 0.05
-                || fabs(got.y - want.y) > 0.05) {
-                fprintf(
-                    stderr,
-                    "place turn %d corner %d\n", turn, sw);
-                return 1;
-            }
-        }
-    }
-    if (norm_turn(1) != 1 || norm_turn(3) != 3)
-        return fail("turn");
-    if (norm_turn(0) != 1)
-        return fail("turn default");
-    printf("ok\n");
-    return 0;
-}
 
 #ifndef DSL_BAO_HEADLESS
 
@@ -881,10 +713,9 @@ static int run(void)
 
 #endif
 
+#ifndef DSL_BAO_NO_MAIN
 int main(int argc, char **argv)
 {
-    if (argc >= 2 && strcmp(argv[1], "--check") == 0)
-        return check();
 #ifdef DSL_BAO_HEADLESS
     fprintf(stderr, "dsl-bao: this build has no display\n");
     return 1;
@@ -894,3 +725,4 @@ int main(int argc, char **argv)
     return run();
 #endif
 }
+#endif

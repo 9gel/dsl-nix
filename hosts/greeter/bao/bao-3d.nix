@@ -113,7 +113,12 @@ let
         -lasound -lm
     '';
     doCheck = true;
-    checkPhase = "./dsl-bao-3d --check";
+    checkPhase = ''
+      $CC -std=c11 -Wall -Wextra -Werror -DDSL_BAO_HEADLESS \
+        -DDSL_BAO_NO_MAIN -I${./.} -o bao-3d-test \
+        ${./bao-3d-test.c} ${./bao-3d.c} -lm
+      ./bao-3d-test
+    '';
     installPhase = ''
       mkdir -p $out/bin
       install -m 755 dsl-bao-3d $out/bin/dsl-bao-3d-bin
@@ -135,14 +140,22 @@ let
     buildInputs = [ pkgs.libjpeg pkgs.onnxruntime ];
     nativeBuildInputs = [ pkgs.pkg-config ];
     buildPhase = ''
-      $CC -O2 -std=c11 -Wall -Wextra -o dsl-bao-wave ${./bao-wave.c} \
+      $CC -O2 -std=c11 -Wall -Wextra -o dsl-bao-wave \
+        ${./bao-gesture.c} ${./bao-wave.c} \
         -DDSL_BAO_PALM=\"${palmOnnx}\" \
         -I${./.} \
         -I${lib.getDev pkgs.onnxruntime}/include \
         $(pkg-config --cflags --libs libjpeg) -lonnxruntime -lm
     '';
     doCheck = true;
-    checkPhase = "./dsl-bao-wave --check";
+    checkPhase = ''
+      $CC -std=c11 -Wall -Wextra -Werror -I${./.} \
+        -o bao-wave-test ${./bao-wave-test.c} ${./bao-gesture.c} -lm
+      ./bao-wave-test
+      cp ${./bao.py} bao.py
+      cp ${./test_bao.py} test_bao.py
+      ${pkgs.python3}/bin/python3 test_bao.py
+    '';
     installPhase = ''
       mkdir -p $out/bin
       install -m 755 dsl-bao-wave $out/bin/dsl-bao-wave
