@@ -1,6 +1,6 @@
 """Build the bao's boing and the Telegram QR card.
 
-The kiosk itself is hosts/greeter/bao.c. This file only writes
+The kiosk is hosts/greeter/bao/bao-3d.c. This file only writes
 the wav and the QR png. `python3 bao.py --check` does not open
 a display and does not import pygame.
 """

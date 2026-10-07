@@ -55,11 +55,11 @@ HDMI-A-1 is a sideways 2560x1440 touch panel (WDT AC270).
 An unrotated console has its top on the physical right.
 greetd starts `dsl-bao` on tty1. That program is the DRM
 client of `/dev/dri/card1` and draws with OpenGL ES 2.
-`screenTransform` in `hosts/greeter/bao.nix` is `1`: the
+`screenTransform` in `hosts/greeter/bao/bao.nix` is `1`: the
 portrait scene is turned onto the landscape mode, and touch
 uses the inverse. Use `3` if the picture is still sideways.
 The screen is the Dim Sum Labs bao
-(`hosts/greeter/dsl-logo-bao.svg`, from
+(`hosts/greeter/bao/dsl-logo-bao.svg`, from
 dimsumlabs/dimsumlabs-graphics). It drifts, and a tap makes
 it jump. Top right is a QR code for `https://t.me/dimsumlabs`,
 about a fifth of the screen height. Left of it, in Asap
@@ -74,15 +74,15 @@ Motion check, no display:
 
 ```sh
 cc -std=c11 -Wall -Wextra -Werror -DDSL_BAO_HEADLESS \
-  -o /tmp/bao-check hosts/greeter/bao.c -lm \
+  -o /tmp/bao-check hosts/greeter/bao/bao.c -lm \
   && /tmp/bao-check --check
 rm /tmp/bao-check
 ```
 
 ### 3D bao
 
-`hosts/greeter/bao-3d.nix` is the 3D variant, and the one
-`configuration.nix` imports now. Import `./bao.nix` instead
+`hosts/greeter/bao/bao-3d.nix` is the 3D variant, and the one
+`configuration.nix` imports now. Import `./bao/bao.nix` instead
 to go back. Import one, not both. The bao chip from
 dimsumlabs-graphics `3D/model_for_dslan.blend` (no cable, no
 socket) paces the corner of a red room and trots on its pins.
@@ -104,14 +104,14 @@ The `.glb` files are committed. To remake them from the blend:
 
 ```sh
 Blender -b ~/Code/dimsumlabs-graphics/3D/model_for_dslan.blend \
-  --python hosts/greeter/bao-3d-export.py -- hosts/greeter
+  --python hosts/greeter/bao/bao-3d-export.py -- hosts/greeter/bao
 ```
 
 Motion check, no display:
 
 ```sh
 cc -std=c11 -Wall -Wextra -Werror -DDSL_BAO_HEADLESS \
-  -o /tmp/bao-3d-check hosts/greeter/bao-3d.c -lm \
+  -o /tmp/bao-3d-check hosts/greeter/bao/bao-3d.c -lm \
   && /tmp/bao-3d-check --check
 rm /tmp/bao-3d-check
 ```
@@ -120,7 +120,7 @@ Wave check, no camera:
 
 ```sh
 cc -std=c11 -Wall -Wextra -Werror -DDSL_BAO_HEADLESS \
-  -o /tmp/bao-wave-check hosts/greeter/bao-wave.c -lm \
+  -o /tmp/bao-wave-check hosts/greeter/bao/bao-wave.c -lm \
   && /tmp/bao-wave-check --check
 rm /tmp/bao-wave-check
 ```
@@ -128,7 +128,7 @@ rm /tmp/bao-wave-check
 Wav and QR writers:
 
 ```sh
-python3 hosts/greeter/bao.py --check
+python3 hosts/greeter/bao/bao.py --check
 ```
 
 The live image still logs in as `nigel`. A switch adds `dimsum`
