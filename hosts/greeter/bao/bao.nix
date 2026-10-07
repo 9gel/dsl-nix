@@ -62,7 +62,10 @@ let
       rev = "dbc56a87da87d973a9c5baa4e7438a9d20121d28";
       hash = "sha256-8+6MDTMc7Spix4ndAUzp51Q5iWcl7pQmyXuV2RutnOk=";
     };
-    patches = [ ./raylib-drm-card.patch ];
+    patches = [
+      ./raylib-drm-card.patch
+      ./raylib-drm-touch.patch
+    ];
     nativeBuildInputs = [
       pkgs.cmake
       pkgs.pkg-config

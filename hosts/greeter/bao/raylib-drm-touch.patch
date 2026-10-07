@@ -1,0 +1,145 @@
+--- a/src/platforms/rcore_drm.c
++++ b/src/platforms/rcore_drm.c
+@@ -51,6 +51,7 @@
+ #include <pthread.h>        // POSIX threads management (inputs reading)
+ #include <dirent.h>         // POSIX directory browsing
+ #include <limits.h>         // INT_MAX
++#include <errno.h>          // ENODEV when the panel USB drops
+ 
+ #include <sys/ioctl.h>      // Required for: ioctl() - UNIX System call for device-specific input/output operations
+ #include <linux/kd.h>       // Linux: KDSKBMODE, K_MEDIUMRAM constants definition
+@@ -1944,6 +1945,9 @@
+     else TRACELOG(LOG_WARNING, "INPUT: Failed to open linux event directory: %s", DEFAULT_EVDEV_PATH);
+ }
+ 
++// Set while scanning only for a pointer, after the touch fd died.
++static int dsl_pointer_only = 0;
++
+ // Identifies a input device and configures it for use if appropriate
+ static void ConfigureEvdevDevice(char *device)
+ {
+@@ -2075,6 +2079,14 @@
+         }
+     }
+ 
++    // Rescan looks for the touchscreen only. Leave the
++    // keyboard and any gamepad on the fd they already hold.
++    if (dsl_pointer_only && !isMouse && !isTouch)
++    {
++        close(fd);
++        return;
++    }
++
+     const char *deviceKindStr = "unknown";
+     if (isMouse || isTouch)
+     {
+@@ -2279,17 +2291,91 @@
+     }
+ }
+ 
++// Drop a stuck finger and forget the dead fd.
++static void dsl_clear_touch(void)
++{
++    int i = 0;
++
++    for (i = 0; i < MAX_TOUCH_POINTS; i++)
++    {
++        platform.touchActive[i] = false;
++        platform.touchPosition[i].x = -1;
++        platform.touchPosition[i].y = -1;
++        platform.touchId[i] = -1;
++        CORE.Input.Touch.position[i].x = -1;
++        CORE.Input.Touch.position[i].y = -1;
++        CORE.Input.Touch.pointId[i] = -1;
++    }
++
++    CORE.Input.Touch.pointCount = 0;
++    platform.currentButtonStateEvdev[MOUSE_BUTTON_LEFT] = 0;
++}
++
++// The panel hub takes the touchscreen with it. Open the
++// event node that came back. First look is immediate, then
++// about once a second while it is still gone.
++static void dsl_reopen_pointer(void)
++{
++    char path[MAX_FILEPATH_LENGTH] = { 0 };
++    DIR *directory = NULL;
++    struct dirent *entity = NULL;
++
++    if (platform.mouseFd != -1)
++    {
++        close(platform.mouseFd);
++        platform.mouseFd = -1;
++    }
++
++    platform.mouseIsTouch = false;
++    dsl_clear_touch();
++    directory = opendir(DEFAULT_EVDEV_PATH);
++
++    if (directory == NULL) return;
++
++    dsl_pointer_only = 1;
++
++    while ((entity = readdir(directory)) != NULL)
++    {
++        if ((strncmp(entity->d_name, "event", 5) != 0) &&
++            (strncmp(entity->d_name, "mouse", 5) != 0)) continue;
++
++        snprintf(path, MAX_FILEPATH_LENGTH, "%s%s",
++            DEFAULT_EVDEV_PATH, entity->d_name);
++        ConfigureEvdevDevice(path);
++    }
++
++    dsl_pointer_only = 0;
++    closedir(directory);
++}
++
+ // Poll mouse input events
+ static void PollMouseEvents(void)
+ {
+     int fd = platform.mouseFd;
+-    if (fd == -1) return;
++    static int scan_wait = 0;
++
++    if (fd == -1)
++    {
++        if (scan_wait > 0)
++        {
++            scan_wait--;
++            return;
++        }
++
++        scan_wait = 60;
++        dsl_reopen_pointer();
++        fd = platform.mouseFd;
++
++        if (fd == -1) return;
++    }
+ 
+     struct input_event event = { 0 };
+     int touchAction = -1;           // 0-TOUCH_ACTION_UP, 1-TOUCH_ACTION_DOWN, 2-TOUCH_ACTION_MOVE
+     static bool isMultitouch = false; // Detect if device supports MT events
+ 
+     // Try to read data from the mouse/touch/gesture and only continue if successful
++    errno = 0;
++
+     while (read(fd, &event, sizeof(event)) == (int)sizeof(event))
+     {
+         // Relative movement parsing
+@@ -2558,6 +2644,16 @@
+         }
+ #endif
+     }
++
++    // read() sets this. EAGAIN is a quiet frame, not a disconnect.
++    if ((errno == ENODEV) || (errno == EIO) || (errno == EBADF))
++    {
++        TRACELOG(LOG_INFO, "INPUT: Touchscreen gone, scanning again");
++        close(fd);
++        platform.mouseFd = -1;
++        platform.mouseIsTouch = false;
++        dsl_clear_touch();
++    }
+ }
+ 
+ // Search matching DRM mode in connector's mode list
