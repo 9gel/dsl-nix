@@ -105,10 +105,7 @@ let
     '';
     doCheck = true;
     checkPhase = ''
-      $CC -std=c11 -Wall -Wextra -Werror -DDSL_BAO_HEADLESS \
-        -DDSL_BAO_NO_MAIN -I${./.} -o bao-test \
-        ${./bao-test.c} ${./bao.c} -lm
-      ./bao-test
+      make -C ${./.} BUILD=$PWD/t test-2d
     '';
     installPhase = ''
       mkdir -p $out/bin

@@ -114,10 +114,7 @@ let
     '';
     doCheck = true;
     checkPhase = ''
-      $CC -std=c11 -Wall -Wextra -Werror -DDSL_BAO_HEADLESS \
-        -DDSL_BAO_NO_MAIN -I${./.} -o bao-3d-test \
-        ${./bao-3d-test.c} ${./bao-3d.c} -lm
-      ./bao-3d-test
+      make -C ${./.} BUILD=$PWD/t test-3d
     '';
     installPhase = ''
       mkdir -p $out/bin
@@ -149,12 +146,8 @@ let
     '';
     doCheck = true;
     checkPhase = ''
-      $CC -std=c11 -Wall -Wextra -Werror -I${./.} \
-        -o bao-wave-test ${./bao-wave-test.c} ${./bao-gesture.c} -lm
-      ./bao-wave-test
-      cp ${./bao.py} bao.py
-      cp ${./test_bao.py} test_bao.py
-      ${pkgs.python3}/bin/python3 test_bao.py
+      make -C ${./.} BUILD=$PWD/t test-wave test-py \
+        PYTHON=${pkgs.python3}/bin/python3
     '';
     installPhase = ''
       mkdir -p $out/bin
