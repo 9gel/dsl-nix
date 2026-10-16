@@ -57,8 +57,8 @@
     alsa.enable = true;
     alsa.support32Bit = true;
     pulse.enable = true;
-    # If you want to use JACK applications, uncomment this
-    #jack.enable = true;
+    # JACK API for Bitwig Studio (low-latency audio).
+    jack.enable = true;
 
     # use the example session manager (no others are packaged yet
     # so this is enabled by default, no need to redefine it in
@@ -78,7 +78,7 @@
   users.users.dimsum = {
     isNormalUser = true;
     description = "Dim Sum Labs";
-    extraGroups = [ "networkmanager" "wheel" ];
+    extraGroups = [ "networkmanager" "wheel" "audio" ];
     packages = with pkgs; [
     ];
     shell = pkgs.zsh;
