@@ -109,6 +109,8 @@
     # Graphical EQ / effects on the default sink (autostarted).
     easyeffects
     spotify
+    # DAW (unfree).
+    bitwig-studio
   ];
 
   ##
