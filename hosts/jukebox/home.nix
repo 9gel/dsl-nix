@@ -10,6 +10,7 @@
       "org.gnome.Nautilus.desktop"
       "spotify.desktop"
       "com.bitwig.BitwigStudio.desktop"
+      "com.github.wwmm.easyeffects.desktop"
     ];
   };
 }
