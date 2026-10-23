@@ -62,11 +62,8 @@ sideways. The bao chip from dimsumlabs-graphics
 `3D/model_for_dslan.blend` (no cable, no socket) paces the
 corner of a red room and trots on its pins. Now and then it
 stops, turns side-on and tips its top back and down to look
-up. A wave at the webcam stops it, turns it to face the
-camera, then plays that same look, with a yellow exclamation
-beside its head. `dsl-bao-wave` watches the camera on the CPU.
-`DSL_BAO_CAMERA` names the device when it is not the first
-camera node. Less often it walks near the corner, faces the
+up. The webcam and palm vision stay off: greetd does not
+start `dsl-bao-wave`. Less often it walks near the corner, faces the
 viewer, raises its rear, leans away and lifts its three near
 hind pins out sideways like a dog (rearmost highest), and
 pees from its rear onto the left wall. The puddle dries in

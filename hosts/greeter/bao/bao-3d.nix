@@ -148,14 +148,9 @@ let
     exec ${bins}/bin/dsl-bao-3d-bin
   '';
   # greetd runs this. The picture loop stays up if the bao
-  # exits. The watcher retries the camera on its own.
+  # exits. Camera and palm vision stay off: the wave
+  # binary still builds, but this session does not start it.
   baoSession = pkgs.writeShellScript "dsl-bao-3d-session" ''
-    (
-      while true; do
-        ${bins}/bin/dsl-bao-wave || true
-        ${pkgs.coreutils}/bin/sleep 2
-      done
-    ) &
     while true; do
       ${dslBao}/bin/dsl-bao-3d || true
       ${pkgs.coreutils}/bin/sleep 1
