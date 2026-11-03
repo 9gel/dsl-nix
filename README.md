@@ -35,7 +35,21 @@ After that switch, flakes stay on:
 sudo nixos-rebuild switch --flake .#jukebox
 ```
 
-AirPlay and Spotify Connect still advertise as `dimsum`.
+AirPlay receivers coexist: Shairport Sync advertises as
+`dimsum-audio` for audio only; UxPlay advertises as `dimsum-av`
+for screen mirroring with audio. UxPlay starts with the GNOME
+session and uses TCP/UDP 7000–7002, separate from Shairport
+Sync. Both send audio through the default PipeWire output.
+Spotify Connect still advertises as `dimsum`.
+
+After switching, log out and back in to start the new graphical
+session service. From an Apple device on the same LAN, select
+`dimsum-av` under Screen Mirroring, or `dimsum-audio` for audio.
+Check receiver status in a terminal on the laptop:
+
+```sh
+systemctl --user status shairport-sync uxplay
+```
 
 Check without building:
 

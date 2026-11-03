@@ -104,6 +104,7 @@
     xscreensaver
     # AirPlay receiver (also run as a user service below).
     shairport-sync
+    uxplay
     # Spotify Connect receiver (also a user service below).
     librespot
     # Graphical EQ / effects on the default sink (autostarted).
@@ -116,7 +117,7 @@
   ##
   # AirPlay + Spotify Connect network receivers.
   #
-  # Both run as *user* services in dimsum's PipeWire session (GNOME autologin),
+  # Receivers run as user services in the GNOME autologin PipeWire session,
   # so they route to whatever the default sink is — the Mackie
   # BIG KNOB STUDIO+ — exactly like the browser does. They are
   # discovered on the LAN over mDNS via Avahi (AirPlay) and
@@ -138,11 +139,16 @@
   # AirPlay: RTSP on TCP 5000, audio/control/timing on UDP 6001-6011.
   # Spotify Connect: librespot advertises its control server on TCP 5354.
   networking.firewall.allowedTCPPorts = [ 5000 5354 ];
+  # UxPlay uses separate ports to coexist with Shairport Sync.
+  networking.firewall.allowedTCPPortRanges = [
+    { from = 7000; to = 7002; }
+  ];
   networking.firewall.allowedUDPPortRanges = [
     { from = 6001; to = 6011; }
+    { from = 7000; to = 7002; }
   ];
 
-  # AirPlay receiver -> user PipeWire, shown in the AirPlay picker as "dimsum".
+  # Audio-only AirPlay receiver -> user PipeWire.
   systemd.user.services.shairport-sync = {
     description = "shairport-sync AirPlay receiver";
     wantedBy = [ "default.target" ];
@@ -153,7 +159,29 @@
       # ALSA bridge (services.pipewire.alsa.enable) -> routes to the Big Knob.
       ExecStart =
         "${pkgs.shairport-sync}/bin/shairport-sync"
-        + " -a dimsum -o alsa -- -d default";
+        + " -a dimsum-audio -o alsa -- -d default";
+      Restart = "on-failure";
+      RestartSec = 3;
+    };
+  };
+
+  # Mirroring needs the graphical session's display environment.
+  systemd.user.services.uxplay = {
+    description = "UxPlay AirPlay audio/video receiver";
+    wantedBy = [ "graphical-session.target" ];
+    partOf = [ "graphical-session.target" ];
+    after = [
+      "graphical-session.target"
+      "pipewire.service"
+      "pipewire-pulse.service"
+      "wireplumber.service"
+    ];
+    serviceConfig = {
+      # pulsesink uses PipeWire's PulseAudio compatibility server.
+      # -nh keeps the advertised name free of an @hostname suffix.
+      ExecStart =
+        "${pkgs.uxplay}/bin/uxplay"
+        + " -n dimsum-av -nh -p 7000 -as pulsesink";
       Restart = "on-failure";
       RestartSec = 3;
     };
