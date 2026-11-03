@@ -184,11 +184,12 @@
       # pulsesink uses PipeWire's PulseAudio compatibility server.
       # -nh keeps the advertised name free of an @hostname suffix.
       # Use GNOME's native Wayland display and flush diagnostics to journald.
+      # Inhibit GNOME idle blanking/sleep only while video is being cast.
       ExecStart =
         "${pkgs.coreutils}/bin/stdbuf -oL -eL"
         + " ${pkgs.uxplay}/bin/uxplay"
         + " -n dimsum-av -nh -p 7000 -as pulsesink"
-        + " -vs waylandsink -s 1024x768 -d";
+        + " -vs waylandsink -s 1024x768 -scrsv 1 -d";
       Restart = "on-failure";
       RestartSec = 3;
     };

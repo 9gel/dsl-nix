@@ -19,6 +19,8 @@ live `/etc/nixos` (channel install, hostname `nixos`,
   and `~/.p10k.zsh` copied from this host's home-manager
 - Byobu autostarts in interactive zsh. `NO_BYOBU=1` skips it.
 - Suspend is blocked while a PipeWire stream is active.
+- UxPlay inhibits GNOME idle blanking and sleep while casting video,
+  including silent mirroring, and releases the inhibitor afterward.
 
 This repo does not switch the live machine.
 
