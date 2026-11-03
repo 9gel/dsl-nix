@@ -45,6 +45,10 @@ Spotify Connect still advertises as `dimsum`.
 After switching, log out and back in to start the new graphical
 session service. From an Apple device on the same LAN, select
 `dimsum-av` under Screen Mirroring, or `dimsum-audio` for audio.
+The pinned **UxPlay — dimsum-av** launcher starts the receiver
+and shows a notification. It reuses the service, so repeated
+clicks do not launch competing receivers. The video window
+appears only when a device sends screen mirroring.
 Check receiver status in a terminal on the laptop:
 
 ```sh
