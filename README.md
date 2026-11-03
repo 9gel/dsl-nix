@@ -55,8 +55,10 @@ Check receiver status in a terminal on the laptop:
 systemctl --user status shairport-sync uxplay
 ```
 
-UxPlay uses native Wayland video output. Connection diagnostics
-and GStreamer warnings are available with:
+UxPlay uses native Wayland video output and requests 1024×768
+for the projector. The sender controls the final stream size
+and aspect ratio; reconnect after changing this setting.
+Connection diagnostics and GStreamer warnings are available with:
 
 ```sh
 journalctl --user -u uxplay -f

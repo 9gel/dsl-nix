@@ -188,7 +188,7 @@
         "${pkgs.coreutils}/bin/stdbuf -oL -eL"
         + " ${pkgs.uxplay}/bin/uxplay"
         + " -n dimsum-av -nh -p 7000 -as pulsesink"
-        + " -vs waylandsink -d";
+        + " -vs waylandsink -s 1024x768 -d";
       Restart = "on-failure";
       RestartSec = 3;
     };
