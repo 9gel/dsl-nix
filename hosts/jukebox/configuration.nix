@@ -168,6 +168,10 @@
   # Mirroring needs the graphical session's display environment.
   systemd.user.services.uxplay = {
     description = "UxPlay AirPlay audio/video receiver";
+    environment = {
+      GST_DEBUG = "2";
+      GST_DEBUG_NO_COLOR = "1";
+    };
     wantedBy = [ "graphical-session.target" ];
     partOf = [ "graphical-session.target" ];
     after = [
@@ -179,9 +183,12 @@
     serviceConfig = {
       # pulsesink uses PipeWire's PulseAudio compatibility server.
       # -nh keeps the advertised name free of an @hostname suffix.
+      # Use GNOME's native Wayland display and flush diagnostics to journald.
       ExecStart =
-        "${pkgs.uxplay}/bin/uxplay"
-        + " -n dimsum-av -nh -p 7000 -as pulsesink";
+        "${pkgs.coreutils}/bin/stdbuf -oL -eL"
+        + " ${pkgs.uxplay}/bin/uxplay"
+        + " -n dimsum-av -nh -p 7000 -as pulsesink"
+        + " -vs waylandsink -d";
       Restart = "on-failure";
       RestartSec = 3;
     };

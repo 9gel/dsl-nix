@@ -55,6 +55,13 @@ Check receiver status in a terminal on the laptop:
 systemctl --user status shairport-sync uxplay
 ```
 
+UxPlay uses native Wayland video output. Connection diagnostics
+and GStreamer warnings are available with:
+
+```sh
+journalctl --user -u uxplay -f
+```
+
 Check without building:
 
 ```sh
