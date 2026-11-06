@@ -112,6 +112,9 @@
     spotify
     # DAW (unfree).
     bitwig-studio
+    # Sound
+    pulseaudio
+    pulsemeeter
   ];
 
   ##
