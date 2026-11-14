@@ -1082,6 +1082,42 @@ static void draw_bubble(
     }
 }
 
+static void draw_glow_text(
+    Font font, const char *text, Vector2 pos, float sz, Color fg)
+{
+    static const float dirs[8][2] = {
+        {1.0f, 0.0f}, {-1.0f, 0.0f}, {0.0f, 1.0f}, {0.0f, -1.0f},
+        {0.707f, 0.707f}, {-0.707f, 0.707f},
+        {0.707f, -0.707f}, {-0.707f, -0.707f},
+    };
+    float sp = sz / 10.0f;
+    float r2 = fmaxf(4.0f, sz * 0.085f);
+    float r1 = fmaxf(2.0f, sz * 0.042f);
+    Color outer = {48, 0, 12, 68};
+    Color inner = {36, 0, 10, 148};
+    Color drop = {28, 0, 8, 170};
+    int i;
+    for (i = 0; i < 8; i++) {
+        Vector2 p = {
+            pos.x + dirs[i][0] * r2,
+            pos.y + dirs[i][1] * r2,
+        };
+        DrawTextEx(font, text, p, sz, sp, outer);
+    }
+    DrawTextEx(
+        font, text,
+        (Vector2){pos.x + r1 * 1.4f, pos.y + r1 * 1.9f},
+        sz, sp, drop);
+    for (i = 0; i < 8; i++) {
+        Vector2 p = {
+            pos.x + dirs[i][0] * r1,
+            pos.y + dirs[i][1] * r1,
+        };
+        DrawTextEx(font, text, p, sz, sp, inner);
+    }
+    DrawTextEx(font, text, pos, sz, sp, fg);
+}
+
 static void draw_overlay(
     Font font, Texture2D qr, Texture2D tg_qr, Texture2D logo,
     const Bubble *ub, Vector2 head_px, float foot_y,
@@ -1109,14 +1145,14 @@ static void draw_overlay(
         (Rectangle){0, 0, (float)logo.width, (float)logo.height},
         (Rectangle){hud.lx, hud.ly, hud.logo_w, hud.side},
         (Vector2){0, 0}, 0, WHITE);
-    DrawTextEx(
+    draw_glow_text(
         font, tagline_lines[0],
         (Vector2){((float)lw - a.x) * 0.5f, hud.sy},
-        cap, cap / 10, INK);
-    DrawTextEx(
+        cap, INK);
+    draw_glow_text(
         font, tagline_lines[1],
         (Vector2){((float)lw - b.x) * 0.5f, hud.sy + a.y + lead},
-        cap, cap / 10, INK);
+        cap, INK);
     draw_bubble(
         font, tg_qr, ub, head_px, foot_y,
         min_y, max_y, bub_sz, lw, lh);
