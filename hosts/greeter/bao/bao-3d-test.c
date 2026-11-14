@@ -325,16 +325,20 @@ static int tests(void)
     hit(__LINE__);
     {
         Hud h = hud_place(1440, 2560, 0.9f, 130);
+        float right_m = 1440.0f - (h.lx + h.logo_w);
         float bottom = h.qy + h.side;
         float x, y, w, hgt, bx, by, bw, bh;
-        if (fabsf(h.side - 2560 * 0.175f) > 0.01f)
-            return fail("qr size");
+        if (fabsf(h.qx - h.margin) > 0.01f
+            || fabsf(h.qy - h.margin) > 0.01f
+            || fabsf(h.ly - h.margin) > 0.01f
+            || fabsf(right_m - h.margin) > 0.05f)
+            return fail("equal top left right margins");
         hit(__LINE__);
-        if (!(h.qx >= h.margin) || !(h.qx < 720))
-            return fail("qr left");
+        if (!(h.side > 650.0f) || !(h.qx < 720))
+            return fail("full width qr size");
         hit(__LINE__);
         if (!(h.lx > h.qx + h.side)
-            || !(h.lx + h.logo_w <= 1440 - h.margin + 0.01f))
+            || fabsf(h.logo_w / h.side - 0.9f) > 0.001f)
             return fail("logo top right");
         hit(__LINE__);
         if (!(h.sy > h.qy + h.side)
@@ -398,31 +402,34 @@ static int tests(void)
     }
     {
         BubbleBox mid = bubble_place(
-            1440, 2560, 680, 2380, 720, 1500, 440, 160, 1);
+            1440, 2560, 950, 2380, 720, 1550, 2100, 440, 160, 1);
         BubbleBox hi_r = bubble_place(
-            1440, 2560, 680, 2380, 620, 820, 440, 430, 1);
+            1440, 2560, 950, 2380, 450, 980, 1500, 440, 430, 1);
         BubbleBox hi_l = bubble_place(
-            1440, 2560, 680, 2380, 820, 820, 440, 430, 0);
-        BubbleBox boxes[3] = {mid, hi_r, hi_l};
-        if (!(mid.y >= 680) || !(mid.y + mid.h < 1500)
+            1440, 2560, 950, 2380, 990, 980, 1500, 440, 430, 0);
+        BubbleBox far_c = bubble_place(
+            1440, 2560, 950, 2380, 720, 720, 1180, 440, 430, 1);
+        BubbleBox boxes[4] = {mid, hi_r, hi_l, far_c};
+        if (!(mid.y >= 950) || !(mid.y + mid.h < 1550)
             || !(mid.ty > mid.y + mid.h))
             return fail("bubble above bao");
         hit(__LINE__);
-        if (fabsf(hi_r.y - 680) > 0.01f || !(hi_r.x > 620)
-            || !(hi_r.tx < hi_r.x))
+        if (!(hi_r.x > 450) || !(hi_r.tx < hi_r.x))
             return fail("bubble shifts right near top");
         hit(__LINE__);
-        if (fabsf(hi_l.y - 680) > 0.01f
-            || !(hi_l.x + hi_l.w < 820)
+        if (!(hi_l.x + hi_l.w < 990)
             || !(hi_l.tx > hi_l.x + hi_l.w))
             return fail("bubble shifts left near top");
         hit(__LINE__);
-        for (i = 0; i < 3; i++) {
+        if (!(far_c.y > 1180) || !(far_c.ty < far_c.y))
+            return fail("bubble moves below bao in far corner");
+        hit(__LINE__);
+        for (i = 0; i < 4; i++) {
             BubbleBox q = boxes[i];
             float det = (q.tx - q.ax) * (q.by - q.ay)
                 - (q.ty - q.ay) * (q.bx - q.ax);
             if (!(q.x >= 36) || !(q.x + q.w <= 1404)
-                || !(q.y >= 680) || !(q.y + q.h <= 2380))
+                || !(q.y >= 950) || !(q.y + q.h <= 2380))
                 return fail("bubble bounds");
             if (!(det < -1.0f))
                 return fail("tail ccw winding");

@@ -396,23 +396,22 @@ static float clampf(float v, float lo, float hi)
 }
 
 /* Signage at the top: Meetup QR on the left, stacked DIM/SUM/LABS
-   logo on the right, and tagline centered underneath both. */
+   logo on the right, spanning full width with equal outer margins,
+   and tagline centered underneath both. */
 Hud hud_place(
     int lw, int lh, float logo_aspect, float sub_h)
 {
     Hud h;
-    float avail_w, pair_w, sub_gap;
+    float avail_w, sub_gap;
+    (void)lh;
     if (logo_aspect < 0.4f)
         logo_aspect = 0.9f;
-    h.margin = fmaxf(20.0f, (float)lh * 0.02f);
-    h.gap = fmaxf(16.0f, h.margin * 0.9f);
-    h.side = (float)lh * 0.175f;
+    h.margin = fmaxf(20.0f, (float)lw * 0.035f);
+    h.gap = h.margin;
     avail_w = fmaxf(80.0f, (float)lw - 2.0f * h.margin);
-    if (h.side * (1.0f + logo_aspect) + h.gap > avail_w)
-        h.side = (avail_w - h.gap) / (1.0f + logo_aspect);
-    h.logo_w = h.side * logo_aspect;
-    pair_w = h.side + h.gap + h.logo_w;
-    h.qx = ((float)lw - pair_w) * 0.5f;
+    h.side = (avail_w - h.gap) / (1.0f + logo_aspect);
+    h.logo_w = avail_w - h.gap - h.side;
+    h.qx = h.margin;
     h.qy = h.margin;
     h.lx = h.qx + h.side + h.gap;
     h.ly = h.margin;
@@ -479,58 +478,84 @@ void bubble_step(
 
 BubbleBox bubble_place(
     int lw, int lh, float min_y, float max_y,
-    float hx, float hy, float bw, float bh, int prefer_right)
+    float hx, float hy, float fy,
+    float bw, float bh, int prefer_right)
 {
     BubbleBox o;
     float margin = fmaxf(16.0f, (float)lw * 0.025f);
     float tail_h = clampf(bh * 0.12f, 18.0f, 28.0f);
     float gap = 16.0f;
-    float clear = fmaxf(120.0f, (float)lw * 0.11f);
+    float bao_h, clear, chest_y, top_y, below_y;
     float lo_x = margin;
     float hi_x = fmaxf(margin, (float)lw - margin - bw);
+    int mode = 0;
     (void)lh;
+    if (fy < hy)
+        fy = hy;
+    bao_h = fmaxf(80.0f, fy - hy);
+    clear = fmaxf(120.0f, bao_h * 0.38f);
+    chest_y = hy + bao_h * 0.35f;
+    top_y = hy - gap - tail_h - bh;
+    below_y = fy + gap + tail_h;
     o.w = bw;
     o.h = bh;
     o.x = clampf(hx - bw * 0.5f, lo_x, hi_x);
-    o.y = hy - gap - tail_h - bh;
-    if (o.y < min_y) {
-        o.y = min_y;
-        if (o.y + bh + gap > hy) {
-            float rx = hx + clear;
-            float lx = hx - clear - bw;
-            int fit_r = rx <= hi_x;
-            int fit_l = lx >= lo_x;
+    o.y = top_y;
+    if (top_y < min_y) {
+        float rx = hx + clear;
+        float lx = hx - clear - bw;
+        int fit_r = rx <= hi_x;
+        int fit_l = lx >= lo_x;
+        int fit_below = below_y + bh <= max_y;
+        int far_top = chest_y < min_y + 24.0f;
+        if (far_top && fit_below) {
+            mode = 2;
+            o.y = fmaxf(min_y, below_y);
+        } else if (fit_r || fit_l) {
+            mode = 1;
             if (prefer_right && fit_r)
                 o.x = rx;
             else if (!prefer_right && fit_l)
                 o.x = lx;
-            else if (fit_r)
-                o.x = rx;
-            else if (fit_l)
-                o.x = lx;
             else
-                o.x = hx <= (float)lw * 0.5f ? hi_x : lo_x;
+                o.x = fit_r ? rx : lx;
+            o.y = clampf(chest_y - bh * 0.5f, min_y, max_y - bh);
+        } else if (fit_below) {
+            mode = 2;
+            o.y = fmaxf(min_y, below_y);
+        } else {
+            mode = 1;
+            o.x = hx <= (float)lw * 0.5f ? hi_x : lo_x;
+            o.y = min_y;
         }
     }
     if (o.y + bh > max_y)
         o.y = fmaxf(min_y, max_y - bh);
     o.x = clampf(o.x, lo_x, hi_x);
-    if (o.x > hx + 8.0f) {
-        float cy = clampf(hy, o.y + 32.0f, o.y + bh - 32.0f);
+    if (mode == 2) {
+        float cx = clampf(hx, o.x + 36.0f, o.x + bw - 36.0f);
+        o.ax = cx + 18.0f;
+        o.ay = o.y + 6.0f;
+        o.bx = cx - 18.0f;
+        o.by = o.y + 6.0f;
+        o.tx = clampf(hx, cx - 28.0f, cx + 28.0f);
+        o.ty = o.y - tail_h;
+    } else if (mode == 1 && o.x > hx + 8.0f) {
+        float cy = clampf(chest_y, o.y + 32.0f, o.y + bh - 32.0f);
         o.ax = o.x + 6.0f;
         o.ay = cy - 16.0f;
         o.bx = o.x + 6.0f;
         o.by = cy + 16.0f;
         o.tx = o.x - tail_h;
-        o.ty = clampf(hy, cy - 22.0f, cy + 22.0f);
-    } else if (o.x + bw < hx - 8.0f) {
-        float cy = clampf(hy, o.y + 32.0f, o.y + bh - 32.0f);
+        o.ty = clampf(chest_y, cy - 22.0f, cy + 22.0f);
+    } else if (mode == 1 && o.x + bw < hx - 8.0f) {
+        float cy = clampf(chest_y, o.y + 32.0f, o.y + bh - 32.0f);
         o.ax = o.x + bw - 6.0f;
         o.ay = cy + 16.0f;
         o.bx = o.x + bw - 6.0f;
         o.by = cy - 16.0f;
         o.tx = o.x + bw + tail_h;
-        o.ty = clampf(hy, cy - 22.0f, cy + 22.0f);
+        o.ty = clampf(chest_y, cy - 22.0f, cy + 22.0f);
     } else {
         float cx = clampf(hx, o.x + 36.0f, o.x + bw - 36.0f);
         o.ax = cx - 18.0f;
@@ -966,7 +991,7 @@ static Vector2 out_vert(
 
 static void draw_bubble(
     Font font, Texture2D tg_qr, const Bubble *ub,
-    Vector2 head_px, float min_y, float max_y,
+    Vector2 head_px, float foot_y, float min_y, float max_y,
     float sz, int lw, int lh)
 {
     float s = (float)ub->show;
@@ -994,8 +1019,12 @@ static void draw_bubble(
     }
     box = bubble_place(
         lw, lh, min_y, max_y,
-        head_px.x, head_px.y, bw, bh, ub->prefer_right);
+        head_px.x, head_px.y, foot_y, bw, bh, ub->prefer_right);
     lift = (1.0f - s) * 14.0f;
+    if (box.ty < box.y)
+        lift = -lift;
+    else if (box.y - lift < min_y)
+        lift = box.y - min_y;
     box.y -= lift;
     box.ay -= lift;
     box.by -= lift;
@@ -1055,7 +1084,7 @@ static void draw_bubble(
 
 static void draw_overlay(
     Font font, Texture2D qr, Texture2D tg_qr, Texture2D logo,
-    const Bubble *ub, Vector2 head_px,
+    const Bubble *ub, Vector2 head_px, float foot_y,
     float cap, float bub_sz, float foot, int lw, int lh)
 {
     Vector2 a = MeasureTextEx(
@@ -1089,7 +1118,8 @@ static void draw_overlay(
         (Vector2){((float)lw - b.x) * 0.5f, hud.sy + a.y + lead},
         cap, cap / 10, INK);
     draw_bubble(
-        font, tg_qr, ub, head_px, min_y, max_y, bub_sz, lw, lh);
+        font, tg_qr, ub, head_px, foot_y,
+        min_y, max_y, bub_sz, lw, lh);
     DrawTextEx(
         font, FOOTER,
         (Vector2){(float)(lw - margin) - f.x,
@@ -1583,9 +1613,9 @@ static int run(void)
     {
         float aspect = (float)logo.width / (float)logo.height;
         Hud slot = hud_place(lw, lh, aspect, 0);
-        float pair_w = slot.side + slot.gap + slot.logo_w;
-        float max_w = fminf(slot.sw, pair_w * 1.18f);
-        cap = fit_tagline(font, max_w, slot.side * 0.34f);
+        cap = fit_tagline(
+            font, slot.sw,
+            fminf((float)lh * 0.08f, slot.side * 0.28f));
         bub_sz = fit_speeches(
             font, (float)lw * 0.34f, (float)lh * 0.08f);
     }
@@ -1606,8 +1636,8 @@ static int run(void)
     for (;;) {
         double dt = GetFrameTime();
         double now = GetTime();
-        Vector2 tap, head_px;
-        Vector3 anchor;
+        Vector2 tap, head_px, foot_px;
+        Vector3 anchor, base;
         int hit = 0;
         if (take_tap(turn, lw, lh, down, now, &last_tap, &tap)) {
             Ray ray = GetScreenToWorldRayEx(tap, cam, lw, lh);
@@ -1639,7 +1669,13 @@ static int run(void)
             p.floor_y + p.head.y + (float)b.y,
             (float)b.z,
         };
+        base = (Vector3){
+            (float)b.x,
+            p.floor_y + (float)b.y,
+            (float)b.z,
+        };
         head_px = GetWorldToScreenEx(anchor, cam, lw, lh);
+        foot_px = GetWorldToScreenEx(base, cam, lw, lh);
 
         BeginTextureMode(scene);
         ClearBackground(ROOM_RED);
@@ -1652,7 +1688,7 @@ static int run(void)
         draw_bao(&p, &b, squash, now);
         EndMode3D();
         draw_overlay(
-            font, qr, tg_qr, logo, &bub, head_px,
+            font, qr, tg_qr, logo, &bub, head_px, foot_px.y,
             cap, bub_sz, foot, lw, lh);
         EndTextureMode();
 

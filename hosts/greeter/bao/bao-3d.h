@@ -85,7 +85,8 @@ void bubble_step(
     Bubble *ub, const Bao *b, double dt, double r);
 BubbleBox bubble_place(
     int lw, int lh, float min_y, float max_y,
-    float hx, float hy, float bw, float bh, int prefer_right);
+    float hx, float hy, float fy,
+    float bw, float bh, int prefer_right);
 void feed_place(
     float qr_bottom, int fw, int fh,
     float *x, float *y, float *w, float *h);
