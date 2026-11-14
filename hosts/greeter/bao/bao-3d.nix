@@ -19,18 +19,19 @@ let
     cp ${./bao-3d-hind-2.glb} "$out/bao-3d-hind-2.glb"
     cp ${./bao-3d-hind-3.glb} "$out/bao-3d-hind-3.glb"
   '';
-  asapVar = pkgs.fetchurl {
+  # Fredoka is an OFL geometric rounded variable font matching
+  # the VAG Rounded proportions in circuit_one.ai.
+  fredokaVar = pkgs.fetchurl {
     url = "https://raw.githubusercontent.com/google/fonts/"
-      + "main/ofl/asap/Asap%5Bwdth%2Cwght%5D.ttf";
-    name = "Asap-Variable.ttf";
-    hash = "sha256-e/KbyrcvfQDeYA6WSj/CBmIAUNhEjd2XaCI3jQ/hgCg=";
+      + "main/ofl/fredoka/Fredoka%5Bwdth%2Cwght%5D.ttf";
+    name = "Fredoka-Variable.ttf";
+    hash = "sha256-K6AuaLFShorvm6KOJLNkjH1Ff+byXHYfLCxT+2GnP8g=";
   };
-  # Asap ships as a variable font. Weight 400 is Regular.
-  asapRegular = pkgs.runCommand "Asap-Regular.ttf" {
+  fredokaSemiBold = pkgs.runCommand "Fredoka-SemiBold.ttf" {
     nativeBuildInputs = [ pkgs.python3Packages.fonttools ];
   } ''
     fonttools varLib.instancer \
-      ${asapVar} wght=400 wdth=100 \
+      ${fredokaVar} wght=600 wdth=100 \
       -o "$out"
   '';
   pythonEnv = pkgs.python3.withPackages (ps: [
@@ -57,6 +58,18 @@ let
   } ''
     export SDL_VIDEODRIVER=dummy
     python3 ${./build_bao.py} --write-qr "$out"
+  '';
+  tgQrPng = pkgs.runCommand "dsl-bao-tg-qr.png" {
+    nativeBuildInputs = [ pythonEnv ];
+  } ''
+    export SDL_VIDEODRIVER=dummy
+    python3 ${./build_bao.py} --write-telegram-qr "$out"
+  '';
+  logoPng = pkgs.runCommand "dsl-bao-logo.png" {
+    nativeBuildInputs = [ pythonEnv ];
+  } ''
+    export SDL_VIDEODRIVER=dummy
+    python3 ${./build_bao.py} --write-logo "$out"
   '';
   # Desktop raylib is GLFW. This one is the Pi's display:
   # kernel DRM, EGL, OpenGL ES 2. DSL_DRM_CARD picks card1.
@@ -119,8 +132,10 @@ let
       make -C ${./.} BUILD=$PWD/b all \
         SCREEN_TURN=${toString screenTransform} \
         MODELS=${models} \
-        FONT=${asapRegular} \
+        FONT=${fredokaSemiBold} \
         QR=${qrPng} \
+        TG_QR=${tgQrPng} \
+        LOGO=${logoPng} \
         SOUNDS=${sounds} \
         PALM=${palmOnnx} \
         ORT_INC=${lib.getDev pkgs.onnxruntime}/include

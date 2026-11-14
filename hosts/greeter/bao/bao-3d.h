@@ -2,6 +2,7 @@
 #define DSL_BAO_3D_H
 
 enum { WALKING, LOOKING, SEEKING, PEEING, NOTICING };
+enum { BUBBLE_N = 4, BUBBLE_TG = 1 };
 
 typedef struct {
     double x, z, heading, speed, turn, wander;
@@ -19,10 +20,22 @@ typedef struct {
 } Place;
 
 typedef struct {
-    float margin, side;
-    float tx, ty;
+    float margin, side, logo_w, gap;
     float qx, qy;
+    float lx, ly;
+    float sx, sy, sw;
+    float bottom;
 } Hud;
+
+typedef struct {
+    int index, open, prefer_right;
+    double timer, show;
+} Bubble;
+
+typedef struct {
+    float x, y, w, h;
+    float ax, ay, bx, by, tx, ty;
+} BubbleBox;
 
 extern const double k_pi;
 extern const double EDGE_LO;
@@ -64,7 +77,15 @@ void local_side(
     float ux, float uz, float yaw, float *lx, float *lz);
 float head_reach(float rx, float rz, float lx, float lz);
 void mark_pose(float t, float *sx, float *sy, float *hop);
-Hud hud_place(int lw, int lh, float text_h);
+Hud hud_place(
+    int lw, int lh, float logo_aspect, float sub_h);
+Bubble bubble_init(void);
+void bubble_dismiss(Bubble *ub);
+void bubble_step(
+    Bubble *ub, const Bao *b, double dt, double r);
+BubbleBox bubble_place(
+    int lw, int lh, float min_y, float max_y,
+    float hx, float hy, float bw, float bh, int prefer_right);
 void feed_place(
     float qr_bottom, int fw, int fh,
     float *x, float *y, float *w, float *h);

@@ -324,14 +324,22 @@ static int tests(void)
         return fail("turn");
     hit(__LINE__);
     {
-        Hud h = hud_place(1440, 2560, 80);
+        Hud h = hud_place(1440, 2560, 0.9f, 130);
         float bottom = h.qy + h.side;
         float x, y, w, hgt, bx, by, bw, bh;
-        if (fabsf(h.side - 2560 * 0.2f) > 0.01f)
+        if (fabsf(h.side - 2560 * 0.175f) > 0.01f)
             return fail("qr size");
         hit(__LINE__);
-        if (!(h.qy > h.ty + 80) || !(h.qx > 720))
-            return fail("qr");
+        if (!(h.qx >= h.margin) || !(h.qx < 720))
+            return fail("qr left");
+        hit(__LINE__);
+        if (!(h.lx > h.qx + h.side)
+            || !(h.lx + h.logo_w <= 1440 - h.margin + 0.01f))
+            return fail("logo top right");
+        hit(__LINE__);
+        if (!(h.sy > h.qy + h.side)
+            || fabsf(h.bottom - (h.sy + 130)) > 0.01f)
+            return fail("tagline underneath");
         hit(__LINE__);
         feed_place(bottom, 240, 320, &x, &y, &w, &hgt);
         if (fabsf(y - 10) > 0.01f || fabsf(x - 10) > 0.01f)
@@ -350,6 +358,75 @@ static int tests(void)
             || fabsf(bw - 0.5f * w) > 0.01f
             || fabsf(bh - 0.5f * hgt) > 0.01f)
             return fail("hand");
+        hit(__LINE__);
+    }
+    {
+        Bao wb = bao_at(24, 34, 0);
+        Bubble ub = bubble_init();
+        int seen[BUBBLE_N] = {0};
+        for (i = 0; i < 60 * 60; i++) {
+            walk(&wb, 1.0 / 60, 0.7, 0.5);
+            bubble_step(&ub, &wb, 1.0 / 60, 0.2);
+            if (ub.open)
+                seen[ub.index] = 1;
+        }
+        for (i = 0; i < BUBBLE_N; i++)
+            if (!seen[i])
+                return fail("every speech bubble shows");
+        hit(__LINE__);
+        ub = bubble_init();
+        for (i = 0; i < 120; i++)
+            bubble_step(&ub, &wb, 1.0 / 60, 0);
+        if (!ub.open || !(ub.show > 0.9))
+            return fail("bubble opens while walking");
+        hit(__LINE__);
+        bubble_dismiss(&ub);
+        if (ub.open || ub.index != BUBBLE_TG)
+            return fail("dismiss advances to telegram");
+        hit(__LINE__);
+        for (i = 0; i < 240; i++)
+            bubble_step(&ub, &wb, 1.0 / 60, 0);
+        if (!ub.open || ub.index != BUBBLE_TG
+            || !(ub.timer > 6.5))
+            return fail("telegram bubble stays longer");
+        hit(__LINE__);
+        set_mode(&wb, PEEING);
+        bubble_step(&ub, &wb, 1.0 / 60, 0);
+        if (ub.open)
+            return fail("pee hides bubble");
+        hit(__LINE__);
+    }
+    {
+        BubbleBox mid = bubble_place(
+            1440, 2560, 680, 2380, 720, 1500, 440, 160, 1);
+        BubbleBox hi_r = bubble_place(
+            1440, 2560, 680, 2380, 620, 820, 440, 430, 1);
+        BubbleBox hi_l = bubble_place(
+            1440, 2560, 680, 2380, 820, 820, 440, 430, 0);
+        BubbleBox boxes[3] = {mid, hi_r, hi_l};
+        if (!(mid.y >= 680) || !(mid.y + mid.h < 1500)
+            || !(mid.ty > mid.y + mid.h))
+            return fail("bubble above bao");
+        hit(__LINE__);
+        if (fabsf(hi_r.y - 680) > 0.01f || !(hi_r.x > 620)
+            || !(hi_r.tx < hi_r.x))
+            return fail("bubble shifts right near top");
+        hit(__LINE__);
+        if (fabsf(hi_l.y - 680) > 0.01f
+            || !(hi_l.x + hi_l.w < 820)
+            || !(hi_l.tx > hi_l.x + hi_l.w))
+            return fail("bubble shifts left near top");
+        hit(__LINE__);
+        for (i = 0; i < 3; i++) {
+            BubbleBox q = boxes[i];
+            float det = (q.tx - q.ax) * (q.by - q.ay)
+                - (q.ty - q.ay) * (q.bx - q.ax);
+            if (!(q.x >= 36) || !(q.x + q.w <= 1404)
+                || !(q.y >= 680) || !(q.y + q.h <= 2380))
+                return fail("bubble bounds");
+            if (!(det < -1.0f))
+                return fail("tail ccw winding");
+        }
         hit(__LINE__);
     }
     printf("3d %d\n", checked);

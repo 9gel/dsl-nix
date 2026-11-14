@@ -13,6 +13,8 @@ SCREEN_TURN ?= 1
 MODELS      ?=
 FONT        ?=
 QR          ?=
+TG_QR       ?=
+LOGO        ?=
 SOUNDS      ?=
 PALM        ?=
 ORT_INC     ?=
@@ -37,12 +39,15 @@ wave: $(BUILD)/dsl-bao-wave
 $(BUILD)/dsl-bao-3d: bao-3d.c bao-3d.h bao-feed.h
 	mkdir -p $(BUILD)
 	test -n "$(MODELS)" -a -n "$(FONT)" \
-		-a -n "$(QR)" -a -n "$(SOUNDS)"
+		-a -n "$(QR)" -a -n "$(TG_QR)" \
+		-a -n "$(LOGO)" -a -n "$(SOUNDS)"
 	$(CC) $(PROD_CFLAGS) -I. -o $@ bao-3d.c \
 		-DDSL_SCREEN_TURN=$(SCREEN_TURN) \
 		-DDSL_BAO_MODELS='"$(MODELS)"' \
 		-DDSL_BAO_FONT='"$(FONT)"' \
 		-DDSL_BAO_QR='"$(QR)"' \
+		-DDSL_BAO_TG_QR='"$(TG_QR)"' \
+		-DDSL_BAO_LOGO='"$(LOGO)"' \
 		-DDSL_BAO_SOUNDS='"$(SOUNDS)"' \
 		$$(pkg-config --cflags --libs raylib) \
 		-lasound -lm

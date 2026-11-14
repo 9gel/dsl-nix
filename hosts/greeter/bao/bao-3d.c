@@ -1,12 +1,10 @@
 /* Dim Sum Labs 3D bao on the Pi display.
 
    The bao chip from model_for_dslan.blend paces the corner of a
-   red room. A tap on it makes it jump, spin and yell. A wave
-   on the webcam makes it face the camera and look up, with an
-   exclamation that jumps up beside its head and says "huh?".
-   While the camera sees movement, a preview of the same
-   shape sits at the top left and draws the palm. The
-   Telegram lines sit above the QR.
+   red room. A tap on it makes it jump, spin and yell. The top
+   signage shows the Meetup QR code, stacked DIM/SUM/LABS logo,
+   and hackerspace tagline; the bao periodically shows speech
+   bubbles with HackJam details and the Telegram QR code.
 */
 
 #include <math.h>
@@ -41,6 +39,12 @@
 #endif
 #ifndef DSL_BAO_QR
 #define DSL_BAO_QR ""
+#endif
+#ifndef DSL_BAO_TG_QR
+#define DSL_BAO_TG_QR ""
+#endif
+#ifndef DSL_BAO_LOGO
+#define DSL_BAO_LOGO ""
 #endif
 #ifndef DSL_BAO_SOUNDS
 #define DSL_BAO_SOUNDS ""
@@ -386,20 +390,157 @@ void mark_pose(float t, float *sx, float *sy, float *hop)
     *hop = 0;
 }
 
-/* QR under the caption, top right. text_h is the
-   measured caption block. */
-Hud hud_place(int lw, int lh, float text_h)
+static float clampf(float v, float lo, float hi)
+{
+    return v < lo ? lo : v > hi ? hi : v;
+}
+
+/* Signage at the top: Meetup QR on the left, stacked DIM/SUM/LABS
+   logo on the right, and tagline centered underneath both. */
+Hud hud_place(
+    int lw, int lh, float logo_aspect, float sub_h)
 {
     Hud h;
-    float gap;
-    h.margin = fmaxf(16.0f, (float)lh * 0.02f);
-    h.side = (float)lh * 0.2f;
-    gap = fmaxf(8.0f, h.margin * 0.5f);
-    h.qx = (float)lw - h.margin - h.side;
-    h.tx = h.qx + h.side;
-    h.ty = h.margin;
-    h.qy = h.margin + text_h + gap;
+    float avail_w, pair_w, sub_gap;
+    if (logo_aspect < 0.4f)
+        logo_aspect = 0.9f;
+    h.margin = fmaxf(20.0f, (float)lh * 0.02f);
+    h.gap = fmaxf(16.0f, h.margin * 0.9f);
+    h.side = (float)lh * 0.175f;
+    avail_w = fmaxf(80.0f, (float)lw - 2.0f * h.margin);
+    if (h.side * (1.0f + logo_aspect) + h.gap > avail_w)
+        h.side = (avail_w - h.gap) / (1.0f + logo_aspect);
+    h.logo_w = h.side * logo_aspect;
+    pair_w = h.side + h.gap + h.logo_w;
+    h.qx = ((float)lw - pair_w) * 0.5f;
+    h.qy = h.margin;
+    h.lx = h.qx + h.side + h.gap;
+    h.ly = h.margin;
+    sub_gap = fmaxf(12.0f, h.margin * 0.45f);
+    h.sx = h.margin;
+    h.sy = h.qy + h.side + sub_gap;
+    h.sw = avail_w;
+    h.bottom = h.sy + sub_h;
     return h;
+}
+
+Bubble bubble_init(void)
+{
+    Bubble ub = {0};
+    ub.timer = 1.4;
+    ub.prefer_right = 1;
+    return ub;
+}
+
+void bubble_dismiss(Bubble *ub)
+{
+    if (ub->open) {
+        ub->open = 0;
+        ub->index = (ub->index + 1) % BUBBLE_N;
+        ub->timer = 3.5;
+    } else if (ub->timer < 3.5) {
+        ub->timer = 3.5;
+    }
+}
+
+void bubble_step(
+    Bubble *ub, const Bao *b, double dt, double r)
+{
+    int busy = b->mode == PEEING || b->mode == NOTICING;
+    double want, ease;
+    dt = clampd(dt, 0, DT_MAX);
+    r = clampd(r, 0, 1);
+    if (ub->open) {
+        if (busy) {
+            ub->open = 0;
+            ub->timer = 2.5;
+        } else {
+            ub->timer -= dt;
+            if (ub->timer <= 0) {
+                ub->open = 0;
+                ub->index = (ub->index + 1) % BUBBLE_N;
+                ub->timer = 3.5 + r * 2.0;
+            }
+        }
+    } else if (!busy && b->y == 0) {
+        ub->timer -= dt;
+        if (ub->timer <= 0) {
+            ub->open = 1;
+            ub->prefer_right = b->z > b->x ? 1 : 0;
+            ub->timer = ub->index == BUBBLE_TG ? 8.0 : 5.5;
+        }
+    }
+    want = ub->open ? 1.0 : 0.0;
+    ease = 1.0 - exp(-12.0 * dt);
+    ub->show += (want - ub->show) * ease;
+    if (!ub->open && ub->show < 0.01)
+        ub->show = 0;
+}
+
+BubbleBox bubble_place(
+    int lw, int lh, float min_y, float max_y,
+    float hx, float hy, float bw, float bh, int prefer_right)
+{
+    BubbleBox o;
+    float margin = fmaxf(16.0f, (float)lw * 0.025f);
+    float tail_h = clampf(bh * 0.12f, 18.0f, 28.0f);
+    float gap = 16.0f;
+    float clear = fmaxf(120.0f, (float)lw * 0.11f);
+    float lo_x = margin;
+    float hi_x = fmaxf(margin, (float)lw - margin - bw);
+    (void)lh;
+    o.w = bw;
+    o.h = bh;
+    o.x = clampf(hx - bw * 0.5f, lo_x, hi_x);
+    o.y = hy - gap - tail_h - bh;
+    if (o.y < min_y) {
+        o.y = min_y;
+        if (o.y + bh + gap > hy) {
+            float rx = hx + clear;
+            float lx = hx - clear - bw;
+            int fit_r = rx <= hi_x;
+            int fit_l = lx >= lo_x;
+            if (prefer_right && fit_r)
+                o.x = rx;
+            else if (!prefer_right && fit_l)
+                o.x = lx;
+            else if (fit_r)
+                o.x = rx;
+            else if (fit_l)
+                o.x = lx;
+            else
+                o.x = hx <= (float)lw * 0.5f ? hi_x : lo_x;
+        }
+    }
+    if (o.y + bh > max_y)
+        o.y = fmaxf(min_y, max_y - bh);
+    o.x = clampf(o.x, lo_x, hi_x);
+    if (o.x > hx + 8.0f) {
+        float cy = clampf(hy, o.y + 32.0f, o.y + bh - 32.0f);
+        o.ax = o.x + 6.0f;
+        o.ay = cy - 16.0f;
+        o.bx = o.x + 6.0f;
+        o.by = cy + 16.0f;
+        o.tx = o.x - tail_h;
+        o.ty = clampf(hy, cy - 22.0f, cy + 22.0f);
+    } else if (o.x + bw < hx - 8.0f) {
+        float cy = clampf(hy, o.y + 32.0f, o.y + bh - 32.0f);
+        o.ax = o.x + bw - 6.0f;
+        o.ay = cy + 16.0f;
+        o.bx = o.x + bw - 6.0f;
+        o.by = cy - 16.0f;
+        o.tx = o.x + bw + tail_h;
+        o.ty = clampf(hy, cy - 22.0f, cy + 22.0f);
+    } else {
+        float cx = clampf(hx, o.x + 36.0f, o.x + bw - 36.0f);
+        o.ax = cx - 18.0f;
+        o.ay = o.y + bh - 6.0f;
+        o.bx = cx + 18.0f;
+        o.by = o.y + bh - 6.0f;
+        o.tx = clampf(hx, cx - 28.0f, cx + 28.0f);
+        o.ty = o.y + bh + tail_h;
+    }
+    return o;
 }
 
 /* Preview top is 10px down. Its bottom meets the QR
@@ -443,9 +584,21 @@ static const char *sound_names[] = {
     "stop-it",
 };
 static const int sound_n = 4;
-static const char *caption_lines[] = {
-    "Join us on Telegram!",
-    "Scan this QR code",
+static const char *tagline_lines[] = {
+    "Hong Kong's longest running",
+    "Hackerspace since 2011",
+};
+
+typedef struct {
+    const char *a, *b;
+    int qr;
+} Speech;
+
+static const Speech speeches[BUBBLE_N] = {
+    {"HackJams every Tuesday", "7pm in Sheung Wan!", 0},
+    {"Join us on Telegram!", NULL, 1},
+    {"Come join our community!", "Make, hack & hang out!", 0},
+    {"Scan the QR code above", "for our Meetup events!", 0},
 };
 static const char FOOTER[] = "Don't touch the bao!";
 static const Color INK = {255, 248, 244, 255};
@@ -577,23 +730,48 @@ static int load_model(const char *dir, const char *name, Model *out)
     return out->meshCount > 0;
 }
 
-static float fit_caption(Font font, float max_w, float max_h)
+static float fit_tagline(Font font, float max_w, float max_h)
 {
-    float size = max_h * 0.38f;
-    while (size > 12) {
+    float size = fminf(92.0f, max_h * 0.52f);
+    while (size > 14) {
         float wide = 0, block = 0;
+        float lead = fmaxf(4.0f, size * 0.12f);
         int i;
         for (i = 0; i < 2; i++) {
             Vector2 m = MeasureTextEx(
-                font, caption_lines[i], size, size / 10);
+                font, tagline_lines[i], size, size / 10);
             wide = fmaxf(wide, m.x);
             block += m.y;
         }
-        if (wide <= max_w && block <= max_h)
+        if (wide <= max_w && block + lead <= max_h)
             return size;
         size -= 2;
     }
-    return 12;
+    return 14;
+}
+
+static float fit_speeches(Font font, float max_w, float max_h)
+{
+    float size = fminf(56.0f, max_h * 0.44f);
+    while (size > 16) {
+        float wide = 0, tall = 0;
+        int i;
+        for (i = 0; i < BUBBLE_N; i++) {
+            Vector2 a = MeasureTextEx(
+                font, speeches[i].a, size, size / 10);
+            wide = fmaxf(wide, a.x);
+            tall = fmaxf(tall, a.y);
+            if (speeches[i].b != NULL) {
+                Vector2 b = MeasureTextEx(
+                    font, speeches[i].b, size, size / 10);
+                wide = fmaxf(wide, b.x);
+            }
+        }
+        if (wide <= max_w && tall * 2.2f <= max_h)
+            return size;
+        size -= 2;
+    }
+    return 16;
 }
 
 static float fit_footer(Font font, float target_w, float max_h)
@@ -772,30 +950,146 @@ static void draw_feed(Font font, Hud hud, const BaoFeed *v)
     }
 }
 
+static Vector2 out_vert(
+    float mx, float my, float vx, float vy, float pad)
+{
+    float dx = vx - mx;
+    float dy = vy - my;
+    float len = sqrtf(dx * dx + dy * dy);
+    if (len < 1e-3f)
+        return (Vector2){vx, vy};
+    return (Vector2){
+        vx + dx / len * pad,
+        vy + dy / len * pad,
+    };
+}
+
+static void draw_bubble(
+    Font font, Texture2D tg_qr, const Bubble *ub,
+    Vector2 head_px, float min_y, float max_y,
+    float sz, int lw, int lh)
+{
+    float s = (float)ub->show;
+    Speech sp;
+    Vector2 m0, m1 = {0, 0};
+    float pad, lead, qr_sz, bw, bh, lift, bd, rnd, mx, my;
+    unsigned char alpha;
+    Color bg, fg, rim, shd, tint;
+    BubbleBox box;
+    Vector2 oa, ot, ob;
+    if (s < 0.02f)
+        return;
+    sp = speeches[ub->index % BUBBLE_N];
+    pad = fmaxf(20.0f, sz * 0.62f);
+    lead = fmaxf(6.0f, sz * 0.16f);
+    qr_sz = fmaxf(180.0f, (float)lh * 0.125f);
+    m0 = MeasureTextEx(font, sp.a, sz, sz / 10);
+    if (sp.qr) {
+        bw = fmaxf(m0.x, qr_sz) + 2.0f * pad;
+        bh = pad + m0.y + lead * 1.4f + qr_sz + pad * 0.85f;
+    } else {
+        m1 = MeasureTextEx(font, sp.b, sz, sz / 10);
+        bw = fmaxf(m0.x, m1.x) + 2.0f * pad;
+        bh = pad + m0.y + lead + m1.y + pad;
+    }
+    box = bubble_place(
+        lw, lh, min_y, max_y,
+        head_px.x, head_px.y, bw, bh, ub->prefer_right);
+    lift = (1.0f - s) * 14.0f;
+    box.y -= lift;
+    box.ay -= lift;
+    box.by -= lift;
+    box.ty -= lift;
+    alpha = (unsigned char)(255.0f * clampf(s, 0.0f, 1.0f));
+    bg = (Color){255, 248, 244, alpha};
+    fg = (Color){26, 18, 16, alpha};
+    rim = (Color){120, 12, 32, alpha};
+    shd = (Color){70, 0, 16, (unsigned char)(90.0f * s)};
+    tint = (Color){255, 255, 255, alpha};
+    bd = 4.0f;
+    rnd = clampf(28.0f / fminf(box.w, box.h), 0.05f, 0.35f);
+    DrawRectangleRounded(
+        (Rectangle){box.x + 6, box.y + 8, box.w, box.h},
+        rnd, 10, shd);
+    mx = (box.ax + box.bx + box.tx) / 3.0f;
+    my = (box.ay + box.by + box.ty) / 3.0f;
+    oa = out_vert(mx, my, box.ax, box.ay, bd * 1.35f);
+    ot = out_vert(mx, my, box.tx, box.ty, bd * 1.35f);
+    ob = out_vert(mx, my, box.bx, box.by, bd * 1.35f);
+    DrawRectangleRounded(
+        (Rectangle){
+            box.x - bd, box.y - bd,
+            box.w + 2 * bd, box.h + 2 * bd},
+        rnd, 10, rim);
+    DrawTriangle(oa, ot, ob, rim);
+    DrawRectangleRounded(
+        (Rectangle){box.x, box.y, box.w, box.h},
+        rnd, 10, bg);
+    DrawTriangle(
+        (Vector2){box.ax, box.ay},
+        (Vector2){box.tx, box.ty},
+        (Vector2){box.bx, box.by},
+        bg);
+    DrawTextEx(
+        font, sp.a,
+        (Vector2){box.x + (box.w - m0.x) * 0.5f, box.y + pad},
+        sz, sz / 10, fg);
+    if (sp.qr) {
+        float qx = box.x + (box.w - qr_sz) * 0.5f;
+        float qy = box.y + pad + m0.y + lead * 1.4f;
+        DrawTexturePro(
+            tg_qr,
+            (Rectangle){
+                0, 0, (float)tg_qr.width, (float)tg_qr.height},
+            (Rectangle){qx, qy, qr_sz, qr_sz},
+            (Vector2){0, 0}, 0, tint);
+    } else {
+        DrawTextEx(
+            font, sp.b,
+            (Vector2){
+                box.x + (box.w - m1.x) * 0.5f,
+                box.y + pad + m0.y + lead},
+            sz, sz / 10, fg);
+    }
+}
+
 static void draw_overlay(
-    Font font, Texture2D qr, float cap, float foot, int lw, int lh)
+    Font font, Texture2D qr, Texture2D tg_qr, Texture2D logo,
+    const Bubble *ub, Vector2 head_px,
+    float cap, float bub_sz, float foot, int lw, int lh)
 {
     Vector2 a = MeasureTextEx(
-        font, caption_lines[0], cap, cap / 10);
+        font, tagline_lines[0], cap, cap / 10);
     Vector2 b = MeasureTextEx(
-        font, caption_lines[1], cap, cap / 10);
+        font, tagline_lines[1], cap, cap / 10);
     Vector2 f = MeasureTextEx(font, FOOTER, foot, foot / 10);
-    float lead = fmaxf(4, a.y / 8);
+    float lead = fmaxf(4.0f, a.y * 0.12f);
     float block = a.y + lead + b.y;
-    Hud hud = hud_place(lw, lh, block);
+    float aspect = logo.height > 0
+        ? (float)logo.width / (float)logo.height : 0.9f;
+    Hud hud = hud_place(lw, lh, aspect, block);
     int margin = (int)hud.margin;
+    float min_y = hud.bottom + hud.margin * 0.4f;
+    float max_y = (float)(lh - margin) - f.y - hud.margin * 0.5f;
     DrawTexturePro(
         qr, (Rectangle){0, 0, (float)qr.width, (float)qr.height},
         (Rectangle){hud.qx, hud.qy, hud.side, hud.side},
         (Vector2){0, 0}, 0, WHITE);
+    DrawTexturePro(
+        logo,
+        (Rectangle){0, 0, (float)logo.width, (float)logo.height},
+        (Rectangle){hud.lx, hud.ly, hud.logo_w, hud.side},
+        (Vector2){0, 0}, 0, WHITE);
     DrawTextEx(
-        font, caption_lines[0],
-        (Vector2){hud.tx - a.x, hud.ty},
+        font, tagline_lines[0],
+        (Vector2){((float)lw - a.x) * 0.5f, hud.sy},
         cap, cap / 10, INK);
     DrawTextEx(
-        font, caption_lines[1],
-        (Vector2){hud.tx - b.x, hud.ty + a.y + lead},
+        font, tagline_lines[1],
+        (Vector2){((float)lw - b.x) * 0.5f, hud.sy + a.y + lead},
         cap, cap / 10, INK);
+    draw_bubble(
+        font, tg_qr, ub, head_px, min_y, max_y, bub_sz, lw, lh);
     DrawTextEx(
         font, FOOTER,
         (Vector2){(float)(lw - margin) - f.x,
@@ -1161,6 +1455,9 @@ static int run(void)
     const char *dir = asset("DSL_BAO_MODELS", DSL_BAO_MODELS);
     const char *font_path = asset("DSL_BAO_FONT", DSL_BAO_FONT);
     const char *qr_path = asset("DSL_BAO_QR", DSL_BAO_QR);
+    const char *tg_qr_path = asset(
+        "DSL_BAO_TG_QR", DSL_BAO_TG_QR);
+    const char *logo_path = asset("DSL_BAO_LOGO", DSL_BAO_LOGO);
     const char *sound_dir = asset("DSL_BAO_SOUNDS", DSL_BAO_SOUNDS);
     const char *shot = getenv("DSL_BAO_SHOT");
     int turn, fw, fh, lw, lh, sound_count, down = 0, frame = 0, i;
@@ -1168,20 +1465,24 @@ static int run(void)
     Model floor, wall_x, wall_z;
     Parts p;
     Shader lit;
-    Texture2D qr;
+    Texture2D qr, tg_qr, logo;
     Font font;
     RenderTexture2D scene;
     Sound sounds[4], huh;
     Camera3D cam;
     BoundingBox box;
     Bao b = bao_at(34, 26, 2.4);
-    float cap, foot, hit_y, hit_r;
+    Bubble bub = bubble_init();
+    float cap, bub_sz, foot, hit_y, hit_r;
     double squash = 1, last_tap = -1;
     float one = 1, zero = 0;
     int shade_loc;
 
-    if (!FileExists(font_path) || !FileExists(qr_path)) {
-        fprintf(stderr, "dsl-bao-3d: font or qr missing\n");
+    if (!FileExists(font_path)
+        || !FileExists(qr_path)
+        || !FileExists(tg_qr_path)
+        || !FileExists(logo_path)) {
+        fprintf(stderr, "dsl-bao-3d: signage asset missing\n");
         return 1;
     }
     SetConfigFlags(FLAG_MSAA_4X_HINT);
@@ -1264,28 +1565,29 @@ static int run(void)
     p.head_rz = (box.max.z - box.min.z) * 0.5f;
 
     qr = LoadTexture(qr_path);
+    tg_qr = LoadTexture(tg_qr_path);
+    logo = LoadTexture(logo_path);
     font = LoadFontEx(font_path, 128, NULL, 0);
     SetTextureFilter(qr, TEXTURE_FILTER_BILINEAR);
+    SetTextureFilter(tg_qr, TEXTURE_FILTER_BILINEAR);
+    SetTextureFilter(logo, TEXTURE_FILTER_BILINEAR);
     SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR);
     scene = LoadRenderTexture(lw, lh);
-    if (qr.id == 0 || font.texture.id == 0 || scene.id == 0) {
+    if (qr.id == 0 || tg_qr.id == 0 || logo.id == 0
+        || font.texture.id == 0 || scene.id == 0) {
         CloseWindow();
         return fail("asset upload failed");
     }
     sound_count = load_sounds(sound_dir, sounds);
     huh = load_wav(sound_dir, "huh");
     {
-        float max_text, gutter, x, y, vw, vh, max_w;
-        Hud slot = hud_place(lw, lh, 0);
-        max_text = slot.side * 0.36f;
-        slot = hud_place(lw, lh, max_text);
-        gutter = fmaxf(8, slot.margin * 0.5f);
-        feed_place(
-            slot.qy + slot.side, 3, 4, &x, &y, &vw, &vh);
-        max_w = slot.tx - (x + vw) - gutter;
-        if (max_w < 40)
-            max_w = 40;
-        cap = fit_caption(font, max_w, max_text);
+        float aspect = (float)logo.width / (float)logo.height;
+        Hud slot = hud_place(lw, lh, aspect, 0);
+        float pair_w = slot.side + slot.gap + slot.logo_w;
+        float max_w = fminf(slot.sw, pair_w * 1.18f);
+        cap = fit_tagline(font, max_w, slot.side * 0.34f);
+        bub_sz = fit_speeches(
+            font, (float)lw * 0.34f, (float)lh * 0.08f);
     }
     foot = fit_footer(font, lw / 2.0f, lh / 8.0f);
 
@@ -1304,7 +1606,8 @@ static int run(void)
     for (;;) {
         double dt = GetFrameTime();
         double now = GetTime();
-        Vector2 tap;
+        Vector2 tap, head_px;
+        Vector3 anchor;
         int hit = 0;
         if (take_tap(turn, lw, lh, down, now, &last_tap, &tap)) {
             Ray ray = GetScreenToWorldRayEx(tap, cam, lw, lh);
@@ -1315,6 +1618,7 @@ static int run(void)
                 + (GetRandomValue(-60, 60) * k_pi / 180);
             poke(&b, hit, flee);
             if (hit) {
+                bubble_dismiss(&bub);
                 play_hit(sounds, sound_count, huh);
                 (void)take_wave(wave_fd);
             }
@@ -1327,7 +1631,15 @@ static int run(void)
         }
         walk(&b, dt, GetRandomValue(0, 999) / 1000.0,
              GetRandomValue(0, 999) / 1000.0);
+        bubble_step(
+            &bub, &b, dt, GetRandomValue(0, 999) / 1000.0);
         squash += (1 - squash) * fmin(1, dt * 8);
+        anchor = (Vector3){
+            (float)b.x,
+            p.floor_y + p.head.y + (float)b.y,
+            (float)b.z,
+        };
+        head_px = GetWorldToScreenEx(anchor, cam, lw, lh);
 
         BeginTextureMode(scene);
         ClearBackground(ROOM_RED);
@@ -1339,7 +1651,9 @@ static int run(void)
         SetShaderValue(lit, shade_loc, &zero, SHADER_UNIFORM_FLOAT);
         draw_bao(&p, &b, squash, now);
         EndMode3D();
-        draw_overlay(font, qr, cap, foot, lw, lh);
+        draw_overlay(
+            font, qr, tg_qr, logo, &bub, head_px,
+            cap, bub_sz, foot, lw, lh);
         EndTextureMode();
 
         BeginDrawing();
@@ -1364,11 +1678,12 @@ static int run(void)
 #ifndef DSL_BAO_NO_MAIN
 int main(int argc, char **argv)
 {
+    (void)argc;
+    (void)argv;
 #ifdef DSL_BAO_HEADLESS
     fprintf(stderr, "dsl-bao-3d: this build has no display\n");
     return 1;
 #else
-    (void)argv;
     return run();
 #endif
 }

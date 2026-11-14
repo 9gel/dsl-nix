@@ -98,11 +98,15 @@ hind pins out sideways like a dog (rearmost highest), and
 pees from its rear onto the left wall. The puddle dries in
 about 30 s. A tap interrupts whatever it is doing: it jumps,
 spins, bolts and plays boing, ouch, "don't touch me!", or
-"Stop it!" at random. Top right is a QR code for
-`https://t.me/dimsumlabs`, about a fifth of the screen height.
-Left of it, in Asap Regular: "Joins us on Telegram! Scan the
-code on the right." Bottom right, half the screen width:
-"Don't touch the bao!" greetd autologins `dimsum` on tty1.
+"Stop it!" at random. Top signage pairs a Meetup QR code
+(`https://www.meetup.com/dimsumlabs/`) on the left with a
+stacked `DIM` / `SUM` / `LABS` badge on the right, over "Hong
+Kong's longest running Hackerspace since 2011" in Fredoka
+SemiBold. As it walks, the bao periodically pops up a speech
+bubble with Tuesday 7pm Sheung Wan HackJam details, community
+invites, and the `https://t.me/dimsumlabs` Telegram QR code.
+Bottom right, half the screen width: "Don't touch the bao!"
+greetd autologins `dimsum` on tty1.
 SSH stays up.
 If the session misbehaves: `sudo systemctl stop greetd`.
 
